@@ -9,7 +9,6 @@ checkpoints_phase6/
 checkpoints_phase7/
 titan_model/
 Results/
-images/
 *.pt
 *.bin
 *.safetensors

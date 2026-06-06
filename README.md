@@ -17,24 +17,40 @@ pip install torch transformers accelerate bitsandbytes matplotlib numpy
 ```
 
 ## 📊 Benchmarks & Evaluations
+
 You can reproduce the benchmarks described in the paper using the included scripts:
 
-1. **OOM Survival Stress Test:**
-   ```bash
-   python titan_stress_test_oom_survival.py
-   ```
-2. **Needle-in-a-Haystack (NIH) Grid Generator:**
-   ```bash
-   python plot_nih_grid.py
-   ```
-3. **Perplexity (PPL) Quality Preservation:**
-   ```bash
-   python titan_eval_ppl.py
-   ```
-4. **Functional Integrity (World Knowledge & Code Syntax):**
-   ```bash
-   python titan_birthday_test.py
-   ```
+### 1. OOM Survival Stress Test
+Symphony flatlines VRAM, escaping the quadratic attention memory wall:
+```bash
+python titan_stress_test_oom_survival.py
+```
+<p align="center">
+  <img src="images/vram_benchmark.png" width="70%" alt="VRAM Bounded Memory Footprint Benchmarks"/>
+</p>
+
+### 2. Needle-in-a-Haystack (NIH) Grid Generator
+Symphony maintains 100% retrieval accuracy over 43,000+ token contexts:
+```bash
+python plot_nih_grid.py
+```
+<p align="center">
+  <img src="images/nih_grid.png" width="90%" alt="Needle-in-a-Haystack (NIH) Retrieval Accuracy Grid"/>
+</p>
+
+### 3. Perplexity (PPL) Quality Preservation
+Symphony preserves baseline language capability with only a minor perplexity shift:
+```bash
+python titan_eval_ppl.py
+```
+<p align="center">
+  <img src="images/ppl_benchmark.png" width="60%" alt="Language Modeling Quality Preservation Graph"/>
+</p>
+
+### 4. Functional Integrity (World Knowledge & Code Syntax)
+```bash
+python titan_birthday_test.py
+```
 
 ## 📝 Academic Paper & Citation
 For full mathematical and implementation details, please refer to our publication:
