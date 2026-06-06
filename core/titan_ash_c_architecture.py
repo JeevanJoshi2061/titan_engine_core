@@ -173,6 +173,14 @@ class SymphonyASHCLayer(nn.Module):
         else:
             initial_state = self.m_state
             
+        if overflow_K is not None:
+            O_K_freq = torch.fft.rfft(overflow_K, dim=-1)
+            O_V_freq = torch.fft.rfft(overflow_V, dim=-1)
+            O_K_abs = torch.sqrt(O_K_freq.real.pow(2) + O_K_freq.imag.pow(2) + 1e-12)
+            O_K_norm = O_K_freq / O_K_abs.to(dtype=torch.complex64)
+            overflow_bound = (O_K_norm * O_V_freq).mean(dim=1)
+            initial_state = initial_state + overflow_bound
+            
         scale = math.sqrt(1.0 - self.lambda_decay ** 2)
         
         if S <= 8192:
@@ -193,15 +201,6 @@ class SymphonyASHCLayer(nn.Module):
             for t in range(S):
                 curr.mul_(self.lambda_decay).add_(bound[:, t], alpha=scale)
                 outputs_rec_freq[:, t] = curr
-        
-        if overflow_K is not None:
-            O_K_freq = torch.fft.rfft(overflow_K, dim=-1)
-            O_V_freq = torch.fft.rfft(overflow_V, dim=-1)
-            O_K_abs = torch.sqrt(O_K_freq.real.pow(2) + O_K_freq.imag.pow(2) + 1e-12)
-            O_K_norm = O_K_freq / O_K_abs.to(dtype=torch.complex64)
-            
-            overflow_bound = (O_K_norm * O_V_freq).mean(dim=1)
-            outputs_rec_freq = outputs_rec_freq + overflow_bound.unsqueeze(1)
             
         if not self.training:
             self.m_state = outputs_rec_freq[:, -1, :].detach()

@@ -13,7 +13,9 @@ except ImportError:
 if HAS_TRITON:
     @triton.jit
     def fhrr_recurrent_scan_kernel(
-        keys_ptr, values_ptr, output_ptr,
+        k_real_ptr, k_imag_ptr, v_real_ptr, v_imag_ptr, 
+        out_real_ptr, out_imag_ptr,
+        init_real_ptr, init_imag_ptr,
         decay, scale_factor,
         batch_stride, seq_stride, feat_stride,
         batch_size, seq_len, feat_dim,
@@ -26,14 +28,15 @@ if HAS_TRITON:
         pid_batch = tl.program_id(0)
         pid_feat = tl.program_id(1)
         
-        feat_offsets = tl.arange(0, BLOCK_SIZE)
+        feat_offsets = pid_feat * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
         feat_mask = feat_offsets < feat_dim
         
         decay_val = decay
         scale_val = scale_factor
         
-        accum_real = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
-        accum_imag = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
+        init_offset = pid_batch * feat_dim + feat_offsets
+        accum_real = tl.load(init_real_ptr + init_offset, mask=feat_mask, other=0.0)
+        accum_imag = tl.load(init_imag_ptr + init_offset, mask=feat_mask, other=0.0)
         
         for s in range(0, seq_len):
             base_offset = (
@@ -42,11 +45,11 @@ if HAS_TRITON:
                 feat_offsets * feat_stride
             )
             
-            k_real = tl.load(keys_ptr + base_offset, mask=feat_mask, other=0.0)
-            k_imag = tl.load(keys_ptr + base_offset + 1, mask=feat_mask, other=0.0)
+            k_real = tl.load(k_real_ptr + base_offset, mask=feat_mask, other=0.0)
+            k_imag = tl.load(k_imag_ptr + base_offset, mask=feat_mask, other=0.0)
             
-            v_real = tl.load(values_ptr + base_offset, mask=feat_mask, other=0.0)
-            v_imag = tl.load(values_ptr + base_offset + 1, mask=feat_mask, other=0.0)
+            v_real = tl.load(v_real_ptr + base_offset, mask=feat_mask, other=0.0)
+            v_imag = tl.load(v_imag_ptr + base_offset, mask=feat_mask, other=0.0)
             
             # Key normalization
             mag = tl.sqrt(k_real * k_real + k_imag * k_imag + 1e-6)
@@ -61,41 +64,48 @@ if HAS_TRITON:
             accum_real = decay_val * accum_real + scale_val * bound_real
             accum_imag = decay_val * accum_imag + scale_val * bound_imag
             
-            out_offset = (
-                pid_batch * batch_stride +
-                s * seq_stride +
-                feat_offsets * feat_stride
-            )
-            tl.store(output_ptr + out_offset, accum_real, mask=feat_mask)
-            tl.store(output_ptr + out_offset + 1, accum_imag, mask=feat_mask)
+            tl.store(out_real_ptr + base_offset, accum_real, mask=feat_mask)
+            tl.store(out_imag_ptr + base_offset, accum_imag, mask=feat_mask)
 
 
-def run_triton_fhrr_scan(keys, values, decay=0.99):
+def run_triton_fhrr_scan(keys, values, initial_state=None, decay=0.99):
     B, S, D = keys.shape
     device = keys.device
     
     keys_freq = torch.fft.rfft(keys, dim=-1)
     values_freq = torch.fft.rfft(values, dim=-1)
     
-    keys_packed = torch.view_as_real(keys_freq).contiguous()
-    values_packed = torch.view_as_real(values_freq).contiguous()
-    out_packed = torch.empty_like(keys_packed)
+    k_real = keys_freq.real.contiguous()
+    k_imag = keys_freq.imag.contiguous()
+    v_real = values_freq.real.contiguous()
+    v_imag = values_freq.imag.contiguous()
+    out_real = torch.empty_like(k_real)
+    out_imag = torch.empty_like(k_imag)
     
-    batch_stride, seq_stride, feat_stride, _ = keys_packed.stride()
-    feat_dim = keys_packed.shape[2]
-    BLOCK_SIZE = triton.next_power_of_2(feat_dim)
+    if initial_state is not None:
+        init_real = initial_state.real.contiguous()
+        init_imag = initial_state.imag.contiguous()
+    else:
+        init_real = torch.zeros(B, k_real.shape[2], device=device, dtype=k_real.dtype)
+        init_imag = torch.zeros(B, k_real.shape[2], device=device, dtype=k_real.dtype)
+    
+    batch_stride, seq_stride, feat_stride = k_real.stride()
+    feat_dim = k_real.shape[2]
+    BLOCK_SIZE = min(512, triton.next_power_of_2(feat_dim))
     scale_factor = math.sqrt(1.0 - decay**2)
     
-    grid = (B, 1)
+    grid = (B, triton.cdiv(feat_dim, BLOCK_SIZE))
     fhrr_recurrent_scan_kernel[grid](
-        keys_packed, values_packed, out_packed,
+        k_real, k_imag, v_real, v_imag,
+        out_real, out_imag,
+        init_real, init_imag,
         decay, scale_factor,
         batch_stride, seq_stride, feat_stride,
         B, S, feat_dim,
         BLOCK_SIZE=BLOCK_SIZE
     )
     
-    out_complex = torch.view_as_complex(out_packed)
+    out_complex = torch.complex(out_real, out_imag)
     return out_complex
 
 
@@ -160,15 +170,20 @@ class SymphonyHEPDNALayer(nn.Module):
         B, S, D = hidden_states.shape
         device = hidden_states.device
         
-        if prefill and oracle_scores is not None:
-            k = max(1, int(S * 0.20))
-            topk_vals, topk_indices = torch.topk(oracle_scores, k, dim=1)
-            
-            for b in range(B):
-                idx = topk_indices[b]
-                exact_h = hidden_states[b:b+1, idx, :]
-                next_idx = (idx + 1).clamp(max=S-1)
-                exact_i = input_ids[b:b+1, next_idx]
+        if prefill:
+            if self._total_seq_len == 0:
+                self.reset_inference_state()
+            if oracle_scores is not None:
+                k = max(1, int(S * 0.20))
+                topk_vals, topk_indices = torch.topk(oracle_scores, k, dim=1)
+                
+                # Batch-aware tensor indexing to preserve batch dimension
+                gather_indices = topk_indices.unsqueeze(-1).expand(-1, -1, D)
+                exact_h = torch.gather(hidden_states, 1, gather_indices).detach()
+                
+                next_idx = (topk_indices + 1).clamp(max=S-1)
+                exact_i = torch.gather(input_ids, 1, next_idx).detach()
+                
                 self.exact_hidden_states.append(exact_h)
                 self.exact_ids.append(exact_i)
         
@@ -179,7 +194,10 @@ class SymphonyHEPDNALayer(nn.Module):
         values = self.pos_embeddings[offset:offset+S].unsqueeze(0).expand(B, -1, -1).to(device=device, dtype=torch.float32)
         
         if self.use_triton:
-            m_state = run_triton_fhrr_scan(keys, values, decay=self.decay)
+            initial_state = self._persistent_state if (not self.training and self._persistent_state is not None) else None
+            m_state = run_triton_fhrr_scan(keys, values, initial_state=initial_state, decay=self.decay)
+            if not self.training:
+                self._persistent_state = m_state[:, -1, :].detach()
             queries_freq = torch.fft.rfft(queries, dim=-1)
             queries_norm = self._fft_normalize(queries_freq)
         else:
@@ -264,17 +282,13 @@ class SymphonyHEPDNALayer(nn.Module):
             else:
                 pointer_vocab_probs_last = torch.zeros(B, 1, self.vocab_size, device=device, dtype=torch.float32)
             
+            gate_val = torch.sigmoid(self.gate_proj(hidden_states[:, -1:, :]))
             if lm_logits is not None:
                 lm_logits_last = lm_logits[:, -1:, :]
-                final_logits_last = lm_logits_last.clone()
-                
-                if not self.training and len(self.exact_hidden_states) > 0:
-                    max_score = exact_logits.max(-1).values.item()
-                    if max_score > 12.0:
-                        max_pos = exact_logits.argmax(-1)
-                        target_token = exact_i.gather(1, max_pos)
-                        final_logits_last.scatter_(dim=2, index=target_token.unsqueeze(1), value=100.0)
+                lm_probs = F.softmax(lm_logits_last, dim=-1)
+                final_probs = (1.0 - gate_val) * lm_probs + gate_val * pointer_vocab_probs_last
+                final_logits_last = torch.log(final_probs + 1e-12)
             else:
                 final_logits_last = pointer_vocab_probs_last
                 
-            return final_logits_last, gate[:, -1:, :]
+            return final_logits_last, gate_val
