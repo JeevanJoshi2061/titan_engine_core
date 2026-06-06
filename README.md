@@ -36,9 +36,25 @@ You can reproduce the benchmarks described in the paper using the included scrip
    python titan_birthday_test.py
    ```
 
-## 📝 Academic Paper
-For full mathematical details, please refer to our arXiv publication: 
-*Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks* (Coming Soon).
+## 📝 Academic Paper & Citation
+For full mathematical and implementation details, please refer to our publication:
+> **Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks**  
+> Jeevan Joshi (2026). Zenodo.  
+> DOI: [10.5281/zenodo.20566771](https://doi.org/10.5281/zenodo.20566771)
+
+### BibTeX
+```bibtex
+@misc{joshi2026symphony,
+  author       = {Joshi, Jeevan},
+  title        = {Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks},
+  month        = jun,
+  year         = 2026,
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.20566771},
+  url          = {https://doi.org/10.5281/zenodo.20566771}
+}
+```
+
 
 ## 📄 License
 This project is open-source and available under the MIT License.
