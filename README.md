@@ -16,14 +16,46 @@
 pip install torch transformers accelerate bitsandbytes matplotlib numpy
 ```
 
+## 🏋️ Training Pipeline
+The Symphony sequence engine can be calibrated and trained sequentially through the 7 phases located in the `training/` directory:
+
+1. **Phase 1: Base Model Parameter Freezing**
+   ```bash
+   python training/titan_phase1_freeze.py
+   ```
+2. **Phase 2: Hybrid MLP Layer Replacement**
+   ```bash
+   python training/titan_phase2_replace_mlp.py
+   ```
+3. **Phase 3: Synthesized Dataset Generation**
+   ```bash
+   python training/titan_phase3_dataset.py
+   ```
+4. **Phase 4: Coarse Pre-Training**
+   ```bash
+   python training/titan_phase4_train.py
+   ```
+5. **Phase 5: HEP-DNA Exact Pointer Optimization**
+   ```bash
+   python training/titan_phase5_train_hep_dna.py
+   ```
+6. **Phase 6: Long-Range Coordinate Calibration**
+   ```bash
+   python training/titan_phase6_longrange_calibration.py
+   ```
+7. **Phase 7: Hybrid Sparse Fine-Tuning**
+   ```bash
+   python training/titan_phase7_hysparse_training.py
+   ```
+
 ## 📊 Benchmarks & Evaluations
 
-You can reproduce the benchmarks described in the paper using the included scripts:
+You can reproduce the benchmarks described in the paper using the scripts located in the `evaluation/` directory:
 
 ### 1. OOM Survival Stress Test
 Symphony flatlines VRAM, escaping the quadratic attention memory wall:
 ```bash
-python titan_stress_test_oom_survival.py
+python evaluation/titan_stress_test_oom_survival.py
 ```
 <p align="center">
   <img src="images/vram_benchmark.png" width="70%" alt="VRAM Bounded Memory Footprint Benchmarks"/>
@@ -32,7 +64,7 @@ python titan_stress_test_oom_survival.py
 ### 2. Needle-in-a-Haystack (NIH) Grid Generator
 Symphony maintains 100% retrieval accuracy over 43,000+ token contexts:
 ```bash
-python plot_nih_grid.py
+python evaluation/plot_nih_grid.py
 ```
 <p align="center">
   <img src="images/nih_grid.png" width="90%" alt="Needle-in-a-Haystack (NIH) Retrieval Accuracy Grid"/>
@@ -41,7 +73,7 @@ python plot_nih_grid.py
 ### 3. Perplexity (PPL) Quality Preservation
 Symphony preserves baseline language capability with only a minor perplexity shift:
 ```bash
-python titan_eval_ppl.py
+python evaluation/titan_eval_ppl.py
 ```
 <p align="center">
   <img src="images/ppl_benchmark.png" width="60%" alt="Language Modeling Quality Preservation Graph"/>
@@ -49,7 +81,7 @@ python titan_eval_ppl.py
 
 ### 4. Functional Integrity (World Knowledge & Code Syntax)
 ```bash
-python titan_birthday_test.py
+python evaluation/titan_birthday_test.py
 ```
 
 ## 📝 Academic Paper & Citation
