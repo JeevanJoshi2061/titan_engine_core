@@ -3,226 +3,194 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-class ASHCRouter(nn.Module):
-    """
-    Gumbel-Softmax Router for selective token routing.
-    Outputs a discrete [0.0, 1.0] choice using straight-through estimators.
-    """
-    def __init__(self, hidden_dim):
+
+class Router(nn.Module):
+    def __init__(self, dim):
         super().__init__()
-        self.salience_proj = nn.Linear(hidden_dim, 2)
-        
-    def forward(self, hidden_states, temperature=1.0, hard=True):
-        logits = self.salience_proj(hidden_states)
-        
+        self.proj = nn.Linear(dim, 2)
+
+    def forward(self, x, temp=1.0, hard=True):
+        logits = self.proj(x)
         if self.training:
-            routing_weights = F.gumbel_softmax(logits, tau=temperature, hard=hard)
+            weights = F.gumbel_softmax(logits, tau=temp, hard=hard)
         else:
             preds = torch.argmax(logits, dim=-1)
-            routing_weights = F.one_hot(preds, num_classes=2).to(hidden_states.dtype)
-            
-        fact_selection = routing_weights[:, :, 1]
-        return fact_selection
+            weights = F.one_hot(preds, num_classes=2).to(x.dtype)
+        return weights[:, :, 1]
 
 
-class PhantomKVCache(nn.Module):
-    """
-    Dynamic sparse cache that stores only key tokens tagged as facts.
-    """
-    def __init__(self, hidden_dim, max_capacity=2048):
+class Cache(nn.Module):
+    def __init__(self, dim, cap=2048):
         super().__init__()
-        self.max_capacity = max_capacity
-        self.hidden_dim = hidden_dim
-        self.reset_cache()
-        
-    def reset_cache(self):
+        self.cap = cap
+        self.dim = dim
+        self.clear()
+
+    def clear(self):
         self.keys = None
         self.values = None
         self.masks = None
-        self.num_tokens = 0
-        
-    def add_to_cache(self, new_keys, new_values, fact_selection):
-        B, S, D = new_keys.shape
-        device = new_keys.device
-        
-        batch_keys = []
-        batch_values = []
-        max_facts = 0
-        
-        for b in range(B):
-            valid_indices = torch.nonzero(fact_selection[b] > 0.5).squeeze(-1)
-            b_keys = new_keys[b, valid_indices]
-            b_values = new_values[b, valid_indices]
-            
-            batch_keys.append(b_keys)
-            batch_values.append(b_values)
-            if b_keys.shape[0] > max_facts:
-                max_facts = b_keys.shape[0]
-                
-        if max_facts == 0:
-            return None, None
-            
-        padded_keys = torch.zeros(B, max_facts, D, device=device, dtype=new_keys.dtype)
-        padded_values = torch.zeros(B, max_facts, D, device=device, dtype=new_values.dtype)
-        padded_masks = torch.zeros(B, max_facts, device=device, dtype=torch.bool)
-        
-        for b in range(B):
-            num_f = batch_keys[b].shape[0]
-            if num_f > 0:
-                padded_keys[b, :num_f] = batch_keys[b]
-                padded_values[b, :num_f] = batch_values[b]
-                padded_masks[b, :num_f] = True
-                
-        if self.keys is None:
-            self.keys = padded_keys
-            self.values = padded_values
-            self.masks = padded_masks
-        else:
-            self.keys = torch.cat([self.keys, padded_keys], dim=1)
-            self.values = torch.cat([self.values, padded_values], dim=1)
-            self.masks = torch.cat([self.masks, padded_masks], dim=1)
-            
-        self.num_tokens = self.keys.shape[1]
-        
-        overflow_keys = None
-        overflow_values = None
-        
-        if self.num_tokens > self.max_capacity:
-            overflow = self.num_tokens - self.max_capacity
-            overflow_keys = self.keys[:, :overflow, :]
-            overflow_values = self.values[:, :overflow, :]
-            
-            self.keys = self.keys[:, overflow:, :]
-            self.values = self.values[:, overflow:, :]
-            self.masks = self.masks[:, overflow:]
-            self.num_tokens = self.max_capacity
-            
-        return overflow_keys, overflow_values
+        self.count = 0
 
-    def exact_attention_retrieval(self, query):
+    def add(self, new_k, new_v, selection):
+        B, S, D = new_k.shape
+        device = new_k.device
+
+        bk = []
+        bv = []
+        mf = 0
+
+        for b in range(B):
+            idx = torch.nonzero(selection[b] > 0.5).squeeze(-1)
+            k = new_k[b, idx]
+            v = new_v[b, idx]
+            bk.append(k)
+            bv.append(v)
+            if k.shape[0] > mf:
+                mf = k.shape[0]
+
+        if mf == 0:
+            return None, None
+
+        pk = torch.zeros(B, mf, D, device=device, dtype=new_k.dtype)
+        pv = torch.zeros(B, mf, D, device=device, dtype=new_v.dtype)
+        pm = torch.zeros(B, mf, device=device, dtype=torch.bool)
+
+        for b in range(B):
+            n = bk[b].shape[0]
+            if n > 0:
+                pk[b, :n] = bk[b]
+                pv[b, :n] = bv[b]
+                pm[b, :n] = True
+
+        if self.keys is None:
+            self.keys = pk
+            self.values = pv
+            self.masks = pm
+        else:
+            self.keys = torch.cat([self.keys, pk], dim=1)
+            self.values = torch.cat([self.values, pv], dim=1)
+            self.masks = torch.cat([self.masks, pm], dim=1)
+
+        self.count = self.keys.shape[1]
+
+        ovk = None
+        ovv = None
+
+        if self.count > self.cap:
+            ov = self.count - self.cap
+            self.keys = self.keys[:, ov:, :]
+            self.values = self.values[:, ov:, :]
+            self.masks = self.masks[:, ov:]
+            self.count = self.cap
+
+    def retrieve(self, query):
         if self.keys is None or self.keys.shape[1] == 0:
             return torch.zeros_like(query)
-            
-        scores = torch.matmul(query, self.keys.transpose(-2, -1)) / math.sqrt(self.hidden_dim)
-        mask_expanded = self.masks.unsqueeze(1)
-        scores = scores.masked_fill(~mask_expanded, -1e9)
-        
-        attn_weights = F.softmax(scores, dim=-1)
-        attn_weights = torch.nan_to_num(attn_weights, nan=0.0)
-        
-        exact_context = torch.matmul(attn_weights, self.values)
-        return exact_context
+
+        scores = torch.matmul(query, self.keys.transpose(-2, -1)) / math.sqrt(self.dim)
+        me = self.masks.unsqueeze(1)
+        scores = scores.masked_fill(~me, -10000.0)
+        attn = F.softmax(scores, dim=-1)
+        attn = torch.nan_to_num(attn, nan=0.0)
+        return torch.matmul(attn, self.values)
 
 
-class SymphonyASHCLayer(nn.Module):
-    """
-    Symphony ASH-C Memory Layer.
-    Combines routing, dynamic cache, FHRR recurrence, and Hopfield cleaning.
-    """
-    def __init__(self, hidden_dim, original_mlp, lambda_decay=0.99):
+class MemLayer(nn.Module):
+    def __init__(self, dim, orig_mlp, lam=0.99):
         super().__init__()
-        self.hidden_dim = hidden_dim
-        self.original_mlp = original_mlp
-        self.lambda_decay = lambda_decay
-        self.freq_dim = hidden_dim // 2 + 1
-        
-        self.router = ASHCRouter(hidden_dim)
-        self.phantom_cache = PhantomKVCache(hidden_dim, max_capacity=2048)
-        
-        self.key_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.value_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.query_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        
-        self.prism_w1 = nn.Linear(hidden_dim * 2, hidden_dim, bias=False)
-        self.prism_w2 = nn.Linear(hidden_dim * 2, hidden_dim, bias=False)
-        self.prism_w3 = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.dim = dim
+        self.orig_mlp = orig_mlp
+        self.lam = lam
+        self.fdim = dim // 2 + 1
+
+        self.router = Router(dim)
+        self.cache = Cache(dim, cap=128)
+
+        self.kp = nn.Linear(dim, dim, bias=False)
+        self.vp = nn.Linear(dim, dim, bias=False)
+        self.qp = nn.Linear(dim, dim, bias=False)
+
+        self.pw1 = nn.Linear(dim * 2, dim, bias=False)
+        self.pw2 = nn.Linear(dim * 2, dim, bias=False)
+        self.pw3 = nn.Linear(dim, dim, bias=False)
         self.act = nn.SiLU()
-        self.norm = nn.RMSNorm(hidden_dim)
-        
-        self.gate = nn.Parameter(torch.zeros(1))
-        self.m_state = None
+        self.norm = nn.RMSNorm(dim)
+
+        self.gate = nn.Parameter(torch.tensor([-10.0]))
+        self.mem = None
 
     def reset_state(self):
-        self.m_state = None
-        self.phantom_cache.reset_cache()
+        self.mem = None
+        self.cache.clear()
 
     def forward(self, x):
         B, S, D = x.shape
         device = x.device
-        
-        mlp_out = self.original_mlp(x)
-        fact_selection = self.router(x)
-        
-        K = self.key_proj(x).float()
-        V = self.value_proj(x).float()
-        Q = self.query_proj(x).float()
-        
-        overflow_K, overflow_V = self.phantom_cache.add_to_cache(K, V, fact_selection)
-        
-        K_freq = torch.fft.rfft(K, dim=-1)
-        V_freq = torch.fft.rfft(V, dim=-1)
-        Q_freq = torch.fft.rfft(Q, dim=-1)
-        
-        K_abs = torch.sqrt(K_freq.real.pow(2) + K_freq.imag.pow(2) + 1e-12)
-        K_norm_freq = K_freq / K_abs.to(dtype=torch.complex64)
-        
-        bound = K_norm_freq * V_freq
-        
-        if self.training or self.m_state is None or self.m_state.shape[0] != B:
-            initial_state = torch.zeros(B, self.freq_dim, dtype=torch.complex64, device=device)
-        else:
-            initial_state = self.m_state
-            
-        if overflow_K is not None:
-            O_K_freq = torch.fft.rfft(overflow_K, dim=-1)
-            O_V_freq = torch.fft.rfft(overflow_V, dim=-1)
-            O_K_abs = torch.sqrt(O_K_freq.real.pow(2) + O_K_freq.imag.pow(2) + 1e-12)
-            O_K_norm = O_K_freq / O_K_abs.to(dtype=torch.complex64)
-            overflow_bound = (O_K_norm * O_V_freq).mean(dim=1)
-            initial_state = initial_state + overflow_bound
-            
-        scale = math.sqrt(1.0 - self.lambda_decay ** 2)
-        
-        if S <= 8192:
-            t_indices = torch.arange(S, device=device).unsqueeze(1)
-            i_indices = torch.arange(S, device=device).unsqueeze(0)
-            power = torch.clamp(t_indices - i_indices, min=0)
-            mask = (t_indices - i_indices >= 0).float()
-            W = ((self.lambda_decay ** power) * mask).to(dtype=torch.complex64)
-            
-            outputs_rec_freq = scale * torch.matmul(W, bound)
-            
-            steps = torch.arange(1, S + 1, device=device, dtype=torch.float32)
-            decay_factors = (self.lambda_decay ** steps).unsqueeze(0).unsqueeze(2).to(dtype=torch.complex64)
-            outputs_rec_freq = outputs_rec_freq + initial_state.unsqueeze(1) * decay_factors
-        else:
-            outputs_rec_freq = torch.empty_like(bound)
-            curr = initial_state.clone()
-            for t in range(S):
-                curr.mul_(self.lambda_decay).add_(bound[:, t], alpha=scale)
-                outputs_rec_freq[:, t] = curr
-            
-        if not self.training:
-            self.m_state = outputs_rec_freq[:, -1, :].detach()
-            
-        Q_abs = torch.sqrt(Q_freq.real.pow(2) + Q_freq.imag.pow(2) + 1e-12)
-        Q_norm_freq = Q_freq / Q_abs.to(dtype=torch.complex64)
-        outputs_rec_freq = outputs_rec_freq * torch.conj(Q_norm_freq)
-        
-        fhrr_rec = torch.fft.irfft(outputs_rec_freq, n=D, dim=-1).to(x.dtype)
-        exact_rec = self.phantom_cache.exact_attention_retrieval(Q).to(x.dtype)
-        
-        combined_signal = torch.cat([fhrr_rec, exact_rec], dim=-1)
-        gated = self.prism_w1(combined_signal) * self.act(self.prism_w2(combined_signal))
-        clean_out = self.norm(self.prism_w3(gated))
-        
-        gate_val = torch.sigmoid(self.gate)
-        output = mlp_out + gate_val * clean_out
-        
-        return output
 
-def compute_contrastive_loss(clean_outputs, target_facts, distractor_facts, margin=1.0):
-    pos_dist = F.pairwise_distance(clean_outputs, target_facts, p=2)
-    neg_dist = F.pairwise_distance(clean_outputs, distractor_facts, p=2)
-    loss = torch.clamp(margin + pos_dist - neg_dist, min=0.0).mean()
-    return loss
+        base = self.orig_mlp(x)
+        sel = self.router(x)
+
+        k = self.kp(x).float()
+        v = self.vp(x).float()
+        q = self.qp(x).float()
+
+        self.cache.add(k, v, sel)
+
+        kfr = torch.fft.rfft(k, dim=-1)
+        vfr = torch.fft.rfft(v, dim=-1)
+        qfr = torch.fft.rfft(q, dim=-1)
+
+        ka = torch.sqrt(kfr.real.pow(2) + kfr.imag.pow(2) + 1e-12)
+        kn = kfr / ka.to(dtype=torch.complex64)
+
+        bound = kn * vfr
+
+        if self.training or self.mem is None or self.mem.shape[0] != B:
+            state0 = torch.zeros(B, self.fdim, dtype=torch.complex64, device=device)
+        else:
+            state0 = self.mem
+
+        sc = math.sqrt(1.0 - self.lam ** 2)
+
+        if S <= 8192:
+            ti = torch.arange(S, device=device).unsqueeze(1)
+            ii = torch.arange(S, device=device).unsqueeze(0)
+            pw = torch.clamp(ti - ii, min=0)
+            msk = (ti - ii >= 0).float()
+            W = ((self.lam ** pw) * msk).to(dtype=torch.complex64)
+
+            rec = sc * torch.matmul(W, bound)
+
+            steps = torch.arange(1, S + 1, device=device, dtype=torch.float32)
+            df = (self.lam ** steps).unsqueeze(0).unsqueeze(2).to(dtype=torch.complex64)
+            rec = rec + state0.unsqueeze(1) * df
+        else:
+            rec = torch.empty_like(bound)
+            curr = state0.clone()
+            for t in range(S):
+                curr.mul_(self.lam).add_(bound[:, t], alpha=sc)
+                rec[:, t] = curr
+
+        if not self.training:
+            self.mem = rec[:, -1, :].detach()
+
+        qa = torch.sqrt(qfr.real.pow(2) + qfr.imag.pow(2) + 1e-12)
+        qn = qfr / qa.to(dtype=torch.complex64)
+        rec = rec * torch.conj(qn)
+
+        fhrr_out = torch.fft.irfft(rec, n=D, dim=-1).to(x.dtype)
+        exact_out = self.cache.retrieve(q).to(x.dtype)
+
+        combined = torch.cat([fhrr_out, exact_out], dim=-1)
+        gated = self.pw1(combined) * self.act(self.pw2(combined))
+        clean = self.norm(self.pw3(gated))
+
+        g = torch.sigmoid(self.gate)
+        return base + g * clean
+
+
+def contrastive_loss(clean, target, distractor, margin=1.0):
+    pd = F.pairwise_distance(clean, target, p=2)
+    nd = F.pairwise_distance(clean, distractor, p=2)
+    return torch.clamp(margin + pd - nd, min=0.0).mean()
