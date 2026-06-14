@@ -1,20 +1,3 @@
-"""
-TITAN ENGINE - KAGGLE UNIFIED TRAINING SCRIPT (SYMPHONY ARCHITECTURE)
-=====================================================================
-A self-contained script combining:
-  1. Configs
-  2. Phase 1 (Freeze)
-  3. Phase 2 (Symphony FHRR Memory Layer Replacement)
-  4. Phase 4 (Reasoning training loop)
-
-INSTRUCTIONS FOR KAGGLE:
-1. Ensure Internet is enabled (to download Qwen2.5-1.5B-Instruct tokenizer/model if not uploaded).
-2. Upload your `titan_reasoning.jsonl` dataset to Kaggle.
-3. Update `DATASET_PATH` below to point to your uploaded Kaggle dataset path (e.g., /kaggle/input/...).
-4. Select a GPU accelerator (L4 or T4x2). Note: if using T4, change DTYPE to torch.float16.
-5. Run this script. Outputs will be saved to /kaggle/working/
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,518 +8,418 @@ import os
 import time
 import math
 import gc
-import logging
+import random
 import sys
 
-# ============================================================
-# LOGGING SETUP
-# ============================================================
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s",
-                    datefmt="%H:%M:%S", handlers=[logging.StreamHandler(sys.stdout)])
-log = logging.getLogger("titan_train_kaggle")
+print_fn = print
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
-# Update these paths for Kaggle
-SOURCE_MODEL = "/kaggle/input/models/qwen-lm/qwen2.5/transformers/1.5b-instruct/1"  # Change if you uploaded model to /kaggle/input/
-DATASET_PATH = "/kaggle/input/datasets/tsfmaster12/70mb-dataset-titan/titan_reasoning.jsonl"  # <-- UPDATE THIS
-OUTPUT_DIR = "/kaggle/working/checkpoints"
-EXPORT_DIR = "/kaggle/working/titan_model"
+model_path = "/kaggle/input/models/qwen-lm/qwen2.5/transformers/1.5b-instruct/1"
+data_path = "/kaggle/input/datasets/tsfmaster/142mb-universal-datasets/universal_titan_reasoning.jsonl"
+ckpt_dir = "/kaggle/working/checkpoints"
+export_dir = "/kaggle/working/titan_model"
 
-# Architecture
-ORIGINAL_HIDDEN_DIM = 1536
-ORIGINAL_INTERMEDIATE = 8960
-NUM_LAYERS = 28
+hidden_size = 1536
+mlp_size = 8960
+n_layers = 28
 
-# Training Hyperparameters
-BATCH_SIZE = 1                   # Reduced to 1 to guarantee OOM-free training
-GRADIENT_ACCUMULATION = 16      # Increased to 16 to keep effective batch size at 16
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 0.01
-MAX_SEQ_LEN = 512
-EPOCHS = 2                
-WARMUP_STEPS = 300
-MAX_GRAD_NORM = 1.0
-MAX_TRAIN_SAMPLES = 50000       # Slice dataset to fit inside Kaggle 12-hour limit
+bs = 1
+grad_acc = 16
+lr = 1e-4
+wd = 0.01
+seq_len = 512
+epochs = 2
+warmup = 300
+clip_norm = 1.0
+max_samples = None
 
-# Checkpoint Settings
-SAVE_CHECKPOINTS = True          # Toggle: True = save checkpoints, False = only final model
-SAVE_INTERVAL = 500              
-KEEP_ONLY_LATEST = True          
-RESUME_FROM_CHECKPOINT = None          
+save_ckpts = True
+save_every = 500
+keep_latest = True
+resume_path = None
 
-# Hardware / System
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DTYPE = torch.float16
-USE_GRADIENT_CHECKPOINTING = True
-LAMBDA_DECAY = 0.99
-USE_SWIGLU = True
+dev = "cuda" if torch.cuda.is_available() else "cpu"
+fp = torch.float16
+use_grad_ckpt = True
+decay = 0.99
+
+def show_config():
+    print_fn(f"model: {model_path}")
+    print_fn(f"data: {data_path}")
+    print_fn(f"device: {dev}, dtype: {fp}")
+    print_fn(f"hidden: {hidden_size}, mlp: {mlp_size}")
+    print_fn(f"batch: {bs} x {grad_acc} = {bs * grad_acc}")
+    print_fn(f"lr: {lr}, grad_ckpt: {use_grad_ckpt}")
 
 
-def print_config():
-    log.info("=" * 70)
-    log.info("TITAN ENGINE CONFIGURATION (KAGGLE FFT MATH)")
-    log.info("=" * 70)
-    log.info(f"  Source Model:       {SOURCE_MODEL}")
-    log.info(f"  Dataset Path:       {DATASET_PATH}")
-    log.info(f"  Device:             {DEVICE}")
-    log.info(f"  Dtype:              {DTYPE}")
-    log.info(f"  Original MLP dim:   {ORIGINAL_INTERMEDIATE}")
-    log.info(f"  Hidden dim:         {ORIGINAL_HIDDEN_DIM}")
-    log.info(f"  Batch size:         {BATCH_SIZE} x {GRADIENT_ACCUMULATION} = {BATCH_SIZE * GRADIENT_ACCUMULATION}")
-    log.info(f"  Learning rate:      {LEARNING_RATE}")
-    log.info(f"  Grad checkpointing: {USE_GRADIENT_CHECKPOINTING}")
-    log.info(f"  SwiGLU Enabled:     {USE_SWIGLU}")
-    log.info("=" * 70)
-
-
-# ============================================================
-# PHASE 1: LOAD & FREEZE
-# ============================================================
 def load_and_freeze():
-    log.info("\n[PHASE 1] LOAD & FREEZE")
-    log.info("=" * 70)
-    
+    print_fn("\n--- phase 1: load and freeze ---")
+
     torch.cuda.empty_cache()
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
-    
-    # Load tokenizer
-    log.info(f"  Loading tokenizer from: {SOURCE_MODEL}")
-    tokenizer = AutoTokenizer.from_pretrained(SOURCE_MODEL)
-    
-    # Load model
-    log.info(f"  Loading model in {DTYPE}...")
-    model = AutoModelForCausalLM.from_pretrained(
-        SOURCE_MODEL,
-        torch_dtype=DTYPE,
-        device_map=DEVICE,
-        attn_implementation="sdpa"  # Force PyTorch Scaled Dot Product Attention
+
+    print_fn(f"loading tokenizer from {model_path}")
+    tok = AutoTokenizer.from_pretrained(model_path)
+
+    print_fn(f"loading model in {fp}")
+    mdl = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=fp, device_map=dev, attn_implementation="sdpa"
     )
-    
-    num_layers = model.config.num_hidden_layers
-    
-    log.info(f"\n  --- FREEZING ALL PARAMETERS ---")
-    frozen_count = 0
-    total_count = 0
-    for name, param in model.named_parameters():
-        param.requires_grad = False
-        frozen_count += 1
-        total_count += 1
-    log.info(f"  Frozen: {frozen_count}/{total_count} parameter tensors")
-    
-    # Capture Original MLP Output Norms for Phase 2 Calibration
-    log.info(f"\n  --- CAPTURING ORIGINAL MLP OUTPUT NORMS ---")
-    original_mlp_norms = {}
+
+    nl = mdl.config.num_hidden_layers
+
+    ct = 0
+    for n, p in mdl.named_parameters():
+        p.requires_grad = False
+        ct += 1
+    print_fn(f"frozen {ct}/{ct} params")
+
+    print_fn("capturing mlp norms")
+    raw_norms = {}
     hooks = []
-    
-    def make_norm_hook(layer_idx):
-        def hook_fn(module, inp, out):
+
+    def make_hook(idx):
+        def fn(mod, inp, out):
             o = out[0] if isinstance(out, tuple) else out
-            norm = o.float().norm(dim=-1).mean().item()
-            original_mlp_norms[layer_idx] = norm
-        return hook_fn
-    
-    for i in range(num_layers):
-        h = model.model.layers[i].mlp.register_forward_hook(make_norm_hook(i))
+            val = o.float().norm(dim=-1).mean().item()
+            if idx not in raw_norms:
+                raw_norms[idx] = []
+            raw_norms[idx].append(val)
+        return fn
+
+    for i in range(nl):
+        h = mdl.model.layers[i].mlp.register_forward_hook(make_hook(i))
         hooks.append(h)
-    
-    calibration_prompts = [
-        "Solve: 3x + 7 = 22",
-        "If P implies Q and Q is false, what can we say about P?",
-        "What is 15 * 8 + 12?"
-    ]
-    
-    all_layer_norms = {i: [] for i in range(num_layers)}
-    
-    for prompt in calibration_prompts:
-        messages = [{"role": "user", "content": prompt}]
-        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = tokenizer([text], return_tensors="pt", truncation=True, max_length=128).to(DEVICE)
-        with torch.no_grad():
-            model(**inputs)
-        for layer_idx, norm_val in original_mlp_norms.items():
-            all_layer_norms[layer_idx].append(norm_val)
-    
+
+    cal_texts = []
+    if os.path.exists(data_path):
+        try:
+            pool = []
+            with open(data_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    item = json.loads(line)
+                    inp, out = item.get('input', ''), item.get('output', '')
+                    if inp and out:
+                        pool.append(f"Question: {inp}\nAnswer: {out}")
+                        if len(pool) >= 1000:
+                            break
+            if pool:
+                cal_texts = random.sample(pool, min(50, len(pool)))
+            print_fn(f"loaded {len(cal_texts)} calibration samples")
+        except Exception as e:
+            print_fn(f"calibration load failed: {e}")
+
+    if not cal_texts:
+        fallbacks = [
+            "How can we optimize this convolutional neural network architecture to reduce latency by 30% without sacrificing accuracy? Consider quantization, pruning, and architectural changes.",
+            "Solve the Diophantine equation 7x + 11y = 35",
+            "Analyze the eigenvalues and eigenvectors of this 3x3 covariance matrix: [[1, 0.5, 0], [0.5, 2, 0.3], [0, 0.3, 3]]",
+            "Derive the Van der Waals equation of state from first principles using statistical mechanics and virial expansion.",
+            "Implement a parallel FFT algorithm for a dataset of 1 million floating-point numbers using CUDA.",
+            "What are the constraints on the parameters of a stationary Gaussian process, and how does this relate to kernel selection?",
+            "If a Markov chain has transition matrix P, what is its steady-state distribution, and how would you compute it using eigenvalue decomposition?",
+            "Prove or disprove: the product of two positive definite matrices is positive definite.",
+            "Write a vectorized custom CUDA kernel for matrix multiplication in C++.",
+            "Analyze the following server logs and find the memory leak: Traceback (most recent call last)...",
+            "If matrix A has dimension 4x4 and rank 2, what is the dimension of its null space?",
+            "Explain Albert Einstein's mass-energy equivalence principle from first principles."
+        ]
+        for p in fallbacks:
+            txt = tok.apply_chat_template([{"role": "user", "content": p}], tokenize=False, add_generation_prompt=True)
+            cal_texts.append(txt)
+        print_fn(f"using {len(cal_texts)} fallback prompts")
+
+    with torch.no_grad():
+        for txt in cal_texts:
+            inputs = tok([txt], return_tensors="pt", truncation=True, max_length=512).to(dev)
+            mdl(**inputs)
+
     for h in hooks:
         h.remove()
-    
-    avg_mlp_norms = {}
-    for layer_idx in range(num_layers):
-        norms = all_layer_norms[layer_idx]
-        avg_mlp_norms[layer_idx] = sum(norms) / len(norms) if norms else 1.0
-    
-    log.info(f"  [PHASE 1 COMPLETE] Model loaded and frozen. [OK]")
-    
-    breakdown = {
-        "avg_mlp_norms": avg_mlp_norms,
-    }
-    return model, tokenizer, breakdown
+
+    avg_norms = {}
+    for idx in range(nl):
+        vals = raw_norms.get(idx, [1.0])
+        avg_norms[idx] = sum(vals) / len(vals) if vals else 1.0
+
+    print_fn("phase 1 done")
+    return mdl, tok, avg_norms
 
 
-# ============================================================
-# PHASE 2: REPLACE MLP WITH SYMPHONY ARCHITECTURE
-# ============================================================
-class RMSNorm(nn.Module):
-    """Simple RMSNorm implementation for compatibility across all PyTorch versions."""
+class Norm(nn.Module):
     def __init__(self, dim, eps=1e-6):
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim))
+        self.w = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        # Cast to float32 to prevent x.pow(2) overflow in fp16
-        x_f32 = x.to(torch.float32)
-        variance = x_f32.pow(2).mean(-1, keepdim=True)
-        return (x_f32 * torch.rsqrt(variance + self.eps)).to(x.dtype) * self.weight
+        xf = x.to(torch.float32)
+        var = xf.pow(2).mean(-1, keepdim=True)
+        return (xf * torch.rsqrt(var + self.eps)).to(x.dtype) * self.w
 
-class ASHCRouter(nn.Module):
-    """
-    Pillar 1: The Gumbel-Softmax Router
-    Evaluates each token's hidden state and outputs a discrete [0.0, 1.0] decision.
-    Uses hard=True for Straight-Through Estimator (STE) during training,
-    allowing discrete routing decisions while passing gradients back.
-    """
-    def __init__(self, hidden_dim):
+
+class Router(nn.Module):
+    def __init__(self, dim):
         super().__init__()
-        self.salience_proj = nn.Linear(hidden_dim, 2) # [prob_background, prob_fact]
-        
-    def forward(self, hidden_states, temperature=1.0, hard=True):
-        # hidden_states: [B, S, D]
-        logits = self.salience_proj(hidden_states) # [B, S, 2]
-        
+        self.proj = nn.Linear(dim, 2)
+
+    def forward(self, x, temp=1.0, hard=True):
+        logits = self.proj(x)
         if self.training:
-            # hard=True returns discrete one-hot vectors, but gradients bypass the step function
-            routing_weights = F.gumbel_softmax(logits, tau=temperature, hard=hard)
+            weights = F.gumbel_softmax(logits, tau=temp, hard=hard)
         else:
-            # Inference: argmax for true discrete choice
             preds = torch.argmax(logits, dim=-1)
-            routing_weights = F.one_hot(preds, num_classes=2).to(hidden_states.dtype)
-            
-        fact_selection = routing_weights[:, :, 1] # [B, S] (binary 0.0 or 1.0)
-        return fact_selection
+            weights = F.one_hot(preds, num_classes=2).to(x.dtype)
+        return weights[:, :, 1]
 
 
-class PhantomKVCache(nn.Module):
-    """
-    Pillar 2 & 4: The Phantom Fact-Ledger (True Dynamic VRAM Sparsity)
-    Filters out non-facts completely to shrink tensor dimensions.
-    Pads batch items dynamically to the maximum number of facts in the current batch.
-    """
-    def __init__(self, hidden_dim, max_capacity=2048):
+class Cache(nn.Module):
+    def __init__(self, dim, cap=2048):
         super().__init__()
-        self.max_capacity = max_capacity
-        self.hidden_dim = hidden_dim
-        self.reset_cache()
-        
-    def reset_cache(self):
-        self.keys = None   # [B, N, D] (padded fact keys)
-        self.values = None # [B, N, D] (padded fact values)
-        self.masks = None  # [B, N] (boolean mask of valid cache entries)
-        self.num_tokens = 0
-        
-    def add_to_cache(self, new_keys, new_values, fact_selection):
-        """
-        Dynamically extracts and stores only tokens where fact_selection == 1.
-        Saves VRAM by discarding all non-fact tokens before cache expansion.
-        """
-        B, S, D = new_keys.shape
-        device = new_keys.device
-        
-        # Step 1: Collect valid facts per batch element
-        batch_keys = []
-        batch_values = []
-        max_facts = 0
-        
-        for b in range(B):
-            valid_indices = torch.nonzero(fact_selection[b] > 0.5).squeeze(-1)
-            b_keys = new_keys[b, valid_indices]     # [num_facts, D]
-            b_values = new_values[b, valid_indices] # [num_facts, D]
-            
-            batch_keys.append(b_keys)
-            batch_values.append(b_values)
-            if b_keys.shape[0] > max_facts:
-                max_facts = b_keys.shape[0]
-                
-        # If no facts are found in this batch forward step, return empty signals
-        if max_facts == 0:
-            return None, None
-            
-        # Step 2: Pad current batch facts to max_facts to keep computations batched
-        padded_keys = torch.zeros(B, max_facts, D, device=device, dtype=new_keys.dtype)
-        padded_values = torch.zeros(B, max_facts, D, device=device, dtype=new_values.dtype)
-        padded_masks = torch.zeros(B, max_facts, device=device, dtype=torch.bool)
-        
-        for b in range(B):
-            num_f = batch_keys[b].shape[0]
-            if num_f > 0:
-                padded_keys[b, :num_f] = batch_keys[b]
-                padded_values[b, :num_f] = batch_values[b]
-                padded_masks[b, :num_f] = True
-                
-        # Step 3: Append to historical cache
-        if self.keys is None:
-            self.keys = padded_keys
-            self.values = padded_values
-            self.masks = padded_masks
-        else:
-            self.keys = torch.cat([self.keys, padded_keys], dim=1)
-            self.values = torch.cat([self.values, padded_values], dim=1)
-            self.masks = torch.cat([self.masks, padded_masks], dim=1)
-            
-        self.num_tokens = self.keys.shape[1]
-        
-        # Step 4: Pillar 4 (Sleep Cycle - Cache Eviction / Offloading)
-        overflow_keys = None
-        overflow_values = None
-        
-        if self.num_tokens > self.max_capacity:
-            overflow = self.num_tokens - self.max_capacity
-            
-            # Retrieve overflow tokens to be bound into FHRR memory
-            overflow_keys = self.keys[:, :overflow, :]
-            overflow_values = self.values[:, :overflow, :]
-            
-            # Truncate cache
-            self.keys = self.keys[:, overflow:, :]
-            self.values = self.values[:, overflow:, :]
-            self.masks = self.masks[:, overflow:, :]
-            self.num_tokens = self.max_capacity
-            
-        return overflow_keys, overflow_values
+        self.cap = cap
+        self.dim = dim
+        self.clear()
 
-    def exact_attention_retrieval(self, query):
-        """Calculates attention only on valid stored facts, masking padded zeros."""
+    def clear(self):
+        self.keys = None
+        self.values = None
+        self.masks = None
+        self.count = 0
+
+    def add(self, new_k, new_v, selection):
+        B, S, D = new_k.shape
+        device = new_k.device
+
+        bk = []
+        bv = []
+        mf = 0
+
+        for b in range(B):
+            idx = torch.nonzero(selection[b] > 0.5).squeeze(-1)
+            k = new_k[b, idx]
+            v = new_v[b, idx]
+            bk.append(k)
+            bv.append(v)
+            if k.shape[0] > mf:
+                mf = k.shape[0]
+
+        if mf == 0:
+            return None, None
+
+        pk = torch.zeros(B, mf, D, device=device, dtype=new_k.dtype)
+        pv = torch.zeros(B, mf, D, device=device, dtype=new_v.dtype)
+        pm = torch.zeros(B, mf, device=device, dtype=torch.bool)
+
+        for b in range(B):
+            n = bk[b].shape[0]
+            if n > 0:
+                pk[b, :n] = bk[b]
+                pv[b, :n] = bv[b]
+                pm[b, :n] = True
+
+        if self.keys is None:
+            self.keys = pk
+            self.values = pv
+            self.masks = pm
+        else:
+            self.keys = torch.cat([self.keys, pk], dim=1)
+            self.values = torch.cat([self.values, pv], dim=1)
+            self.masks = torch.cat([self.masks, pm], dim=1)
+
+        self.count = self.keys.shape[1]
+
+        ovk = None
+        ovv = None
+
+        if self.count > self.cap:
+            ov = self.count - self.cap
+            ovk = self.keys[:, :ov, :]
+            ovv = self.values[:, :ov, :]
+            self.keys = self.keys[:, ov:, :]
+            self.values = self.values[:, ov:, :]
+            self.masks = self.masks[:, ov:]
+            self.count = self.cap
+
+        return ovk, ovv
+
+    def retrieve(self, query):
         if self.keys is None or self.keys.shape[1] == 0:
             return torch.zeros_like(query)
-            
-        # Scaled dot-product scores: [B, S, D] x [B, D, N] -> [B, S, N]
-        scores = torch.matmul(query, self.keys.transpose(-2, -1)) / math.sqrt(self.hidden_dim)
-        
-        # Apply attention mask to block padded elements
-        mask_expanded = self.masks.unsqueeze(1) # [B, 1, N]
-        scores = scores.masked_fill(~mask_expanded, -10000.0)
-        
-        attn_weights = F.softmax(scores, dim=-1)
-        
-        # Softmax over masked entries can yield NaNs if a batch row has absolutely no facts; fix with nan_to_num
-        attn_weights = torch.nan_to_num(attn_weights, nan=0.0)
-        
-        exact_context = torch.matmul(attn_weights, self.values)
-        return exact_context
+
+        scores = torch.matmul(query, self.keys.transpose(-2, -1)) / math.sqrt(self.dim)
+        me = self.masks.unsqueeze(1)
+        scores = scores.masked_fill(~me, -10000.0)
+        attn = F.softmax(scores, dim=-1)
+        attn = torch.nan_to_num(attn, nan=0.0)
+        return torch.matmul(attn, self.values)
 
 
-class SymphonyASHCLayer(nn.Module):
-    """
-    The True Hardware-Optimized Symphony ASH-C Memory Layer.
-    Combines Gumbel-Softmax routing, dynamic memory pruning, exact masked cache,
-    FHRR holographic frequency-domain recurrence, and a Contrastive Hopfield clean-up Prism.
-    """
-    def __init__(self, hidden_dim, original_mlp, lambda_decay=0.99, scale_factor=1.0):
+class MemLayer(nn.Module):
+    def __init__(self, dim, orig_mlp, lam=0.99, scale=1.0):
         super().__init__()
-        self.hidden_dim = hidden_dim
-        self.original_mlp = original_mlp # Frozen original MLP
-        self.lambda_decay = lambda_decay
-        self.scale_factor = scale_factor
-        self.freq_dim = hidden_dim // 2 + 1
-        
-        # Pillar 1: Router
-        self.router = ASHCRouter(hidden_dim)
-        
-        # Pillar 2: Dynamic Cache
-        self.phantom_cache = PhantomKVCache(hidden_dim, max_capacity=2048)
-        
-        # Projections for Keys, Values, and Queries
-        self.key_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.value_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.query_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        
-        # Pillar 3: Contrastive Hopfield Prism (Gated cleanup)
-        self.prism_w1 = nn.Linear(hidden_dim * 2, hidden_dim, bias=False)
-        self.prism_w2 = nn.Linear(hidden_dim * 2, hidden_dim, bias=False)
-        self.prism_w3 = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.act = nn.SiLU()
-        self.norm = RMSNorm(hidden_dim)
-        
-        self.gate = nn.Parameter(torch.zeros(1))
-        self.m_state = None # Recurrent FHRR state
-        self.last_contrastive_loss = None
+        self.dim = dim
+        self.orig_mlp = orig_mlp
+        self.lam = lam
+        self.scale = scale
+        self.fdim = dim // 2 + 1
 
-        # Initialize projections with Kaiming normal
-        nn.init.kaiming_normal_(self.key_proj.weight, nonlinearity='linear')
-        nn.init.kaiming_normal_(self.value_proj.weight, nonlinearity='linear')
-        nn.init.kaiming_normal_(self.query_proj.weight, nonlinearity='linear')
-        nn.init.kaiming_normal_(self.prism_w1.weight, nonlinearity='linear')
-        nn.init.kaiming_normal_(self.prism_w2.weight, nonlinearity='linear')
-        nn.init.xavier_normal_(self.prism_w3.weight)
+        self.router = Router(dim)
+        self.cache = Cache(dim, cap=128)
+
+        self.kp = nn.Linear(dim, dim, bias=False)
+        self.vp = nn.Linear(dim, dim, bias=False)
+        self.qp = nn.Linear(dim, dim, bias=False)
+
+        self.pw1 = nn.Linear(dim * 2, dim, bias=False)
+        self.pw2 = nn.Linear(dim * 2, dim, bias=False)
+        self.pw3 = nn.Linear(dim, dim, bias=False)
+        self.act = nn.SiLU()
+        self.norm = Norm(dim)
+
+        self.gate = nn.Parameter(torch.tensor([-10.0]))
+        self.mem = None
+        self.cl = None
+
+        nn.init.kaiming_normal_(self.kp.weight, nonlinearity='linear')
+        nn.init.kaiming_normal_(self.vp.weight, nonlinearity='linear')
+        nn.init.kaiming_normal_(self.qp.weight, nonlinearity='linear')
+        nn.init.kaiming_normal_(self.pw1.weight, nonlinearity='linear')
+        nn.init.kaiming_normal_(self.pw2.weight, nonlinearity='linear')
+        nn.init.xavier_normal_(self.pw3.weight)
 
     def reset_state(self):
-        self.m_state = None
-        self.phantom_cache.reset_cache()
-        self.last_contrastive_loss = None
+        self.mem = None
+        self.cache.clear()
+        self.cl = None
 
     def forward(self, x):
         if self.training:
             self.reset_state()
-            
+
         B, S, D = x.shape
         device = x.device
         dtype = x.dtype
-        
-        # Frozen base execution
-        mlp_out = self.original_mlp(x)
-        
-        # 1. Soft-Router routing decision
-        fact_selection = self.router(x)
-        
-        # 2. Project K, V, Q in dtype and cast to float32 for high-precision math
-        K = self.key_proj(x)
-        V = self.value_proj(x)
-        Q = self.query_proj(x)
-        
-        K_f32 = K.float()
-        V_f32 = V.float()
-        Q_f32 = Q.float()
-        
-        # Update dynamic VRAM-efficient Phantom Cache in float32
-        overflow_K, overflow_V = self.phantom_cache.add_to_cache(K_f32, V_f32, fact_selection)
-        
-        # 3. FHRR Holographic Memory operations in float32
-        K_freq = torch.fft.rfft(K_f32, dim=-1)
-        V_freq = torch.fft.rfft(V_f32, dim=-1)
-        Q_freq = torch.fft.rfft(Q_f32, dim=-1)
-        
-        # Normalize Keys in frequency domain to avoid NaN gradients at zero
-        K_abs = torch.sqrt(K_freq.real.pow(2) + K_freq.imag.pow(2) + 1e-12)
-        K_norm_freq = K_freq / K_abs.to(dtype=torch.complex64)
-        
-        # Element-wise circular binding
-        bound = K_norm_freq * V_freq
-        
-        # Retrieve or initialize FHRR state
-        if self.training or S > 1 or self.m_state is None or self.m_state.shape[0] != B:
-            initial_state = torch.zeros(B, self.freq_dim, dtype=torch.complex64, device=device)
+
+        base = self.orig_mlp(x)
+
+        sel = self.router(x)
+
+        k = self.kp(x)
+        v = self.vp(x)
+        q = self.qp(x)
+
+        kf = k.float()
+        vf = v.float()
+        qf = q.float()
+
+        ovk, ovv = self.cache.add(kf, vf, sel)
+
+        kfr = torch.fft.rfft(kf, dim=-1)
+        vfr = torch.fft.rfft(vf, dim=-1)
+        qfr = torch.fft.rfft(qf, dim=-1)
+
+        ka = torch.sqrt(kfr.real.pow(2) + kfr.imag.pow(2) + 1e-12)
+        kn = kfr / ka.to(dtype=torch.complex64)
+
+        bound = kn * vfr
+
+        if self.training or S > 1 or self.mem is None or self.mem.shape[0] != B:
+            state0 = torch.zeros(B, self.fdim, dtype=torch.complex64, device=device)
         else:
-            initial_state = self.m_state
-            
-        # Calculate decay matrix W
-        t_indices = torch.arange(S, device=device).unsqueeze(1)
-        i_indices = torch.arange(S, device=device).unsqueeze(0)
-        power = torch.clamp(t_indices - i_indices, min=0)
-        mask = (t_indices - i_indices >= 0).float()
-        W = ((self.lambda_decay ** power) * mask).to(dtype=torch.complex64)
-        
-        # Vectorized convolution
-        scale = math.sqrt(1.0 - self.lambda_decay ** 2)
-        outputs_rec_freq = scale * torch.matmul(W, bound)
-        
-        # Add initial state contributions
+            state0 = self.mem
+
+        ti = torch.arange(S, device=device).unsqueeze(1)
+        ii = torch.arange(S, device=device).unsqueeze(0)
+        pw = torch.clamp(ti - ii, min=0)
+        msk = (ti - ii >= 0).float()
+        W = ((self.lam ** pw) * msk).to(dtype=torch.complex64)
+
+        sc = math.sqrt(1.0 - self.lam ** 2)
+        rec = sc * torch.matmul(W, bound)
+
         steps = torch.arange(1, S + 1, device=device, dtype=torch.float32)
-        decay_factors = (self.lambda_decay ** steps).unsqueeze(0).unsqueeze(2).to(dtype=torch.complex64)
-        outputs_rec_freq = outputs_rec_freq + initial_state.unsqueeze(1) * decay_factors
-        
-        # Pillar 4: Consolidate cache overflow into FHRR (Sleep Cycle)
-        if overflow_K is not None:
-            O_K_freq = torch.fft.rfft(overflow_K, dim=-1)
-            O_V_freq = torch.fft.rfft(overflow_V, dim=-1)
-            O_K_abs = torch.sqrt(O_K_freq.real.pow(2) + O_K_freq.imag.pow(2) + 1e-12)
-            O_K_norm = O_K_freq / O_K_abs.to(dtype=torch.complex64)
-            
-            overflow_bound = (O_K_norm * O_V_freq).mean(dim=1)
-            outputs_rec_freq = outputs_rec_freq + overflow_bound.unsqueeze(1)
-            
-        # Save final step state for generation
+        df = (self.lam ** steps).unsqueeze(0).unsqueeze(2).to(dtype=torch.complex64)
+        rec = rec + state0.unsqueeze(1) * df
+
+        if ovk is not None:
+            okf = torch.fft.rfft(ovk, dim=-1)
+            ovf = torch.fft.rfft(ovv, dim=-1)
+            oka = torch.sqrt(okf.real.pow(2) + okf.imag.pow(2) + 1e-12)
+            okn = okf / oka.to(dtype=torch.complex64)
+            ob = (okn * ovf).mean(dim=1)
+            rec = rec + ob.unsqueeze(1)
+
         if not self.training:
-            self.m_state = outputs_rec_freq[:, -1, :].detach()
-            
-        # Unbind FHRR state using Query vectors
-        Q_abs = torch.sqrt(Q_freq.real.pow(2) + Q_freq.imag.pow(2) + 1e-12)
-        Q_norm_freq = Q_freq / Q_abs.to(dtype=torch.complex64)
-        outputs_rec_freq = outputs_rec_freq * torch.conj(Q_norm_freq)
-        
-        # Inverse FFT to real domain
-        fhrr_rec = torch.fft.irfft(outputs_rec_freq, n=D, dim=-1)
-        
-        # Retrieve exact context from Phantom Cache
-        exact_rec = self.phantom_cache.exact_attention_retrieval(Q_f32)
-        
-        # 5. Pillar 3: Contrastive Hopfield Prism Execution
-        combined_signal = torch.cat([fhrr_rec, exact_rec], dim=-1).to(dtype)
-        gated = self.prism_w1(combined_signal) * self.act(self.prism_w2(combined_signal))
-        clean_out_proj = self.prism_w3(gated)
-        
-        # RMSNorm and loss are evaluated in float32 for training stability
-        clean_out_f32 = self.norm(clean_out_proj.float()) * (self.scale_factor / math.sqrt(self.hidden_dim))
-        
+            self.mem = rec[:, -1, :].detach()
+
+        qa = torch.sqrt(qfr.real.pow(2) + qfr.imag.pow(2) + 1e-12)
+        qn = qfr / qa.to(dtype=torch.complex64)
+        rec = rec * torch.conj(qn)
+
+        fhrr_out = torch.fft.irfft(rec, n=D, dim=-1)
+
+        exact_out = self.cache.retrieve(qf)
+
+        combined = torch.cat([fhrr_out, exact_out], dim=-1).to(dtype)
+        gated = self.pw1(combined) * self.act(self.pw2(combined))
+        proj = self.pw3(gated)
+
+        clean = self.norm(proj.float()) * (self.scale / math.sqrt(self.dim))
+
         if self.training:
-            pos_dist = F.pairwise_distance(clean_out_f32, exact_rec, p=2)
-            neg_dist = F.pairwise_distance(clean_out_f32, fhrr_rec, p=2)
-            self.last_contrastive_loss = torch.clamp(1.0 + pos_dist - neg_dist, min=0.0).mean()
+            pd = F.pairwise_distance(clean, exact_out, p=2)
+            nd = F.pairwise_distance(clean, fhrr_out, p=2)
+            self.cl = torch.clamp(1.0 + pd - nd, min=0.0).mean()
         else:
-            self.last_contrastive_loss = None
-            
-        clean_out = clean_out_f32.to(dtype)
-        gate_val = torch.sigmoid(self.gate).to(dtype)
-        output = mlp_out + gate_val * clean_out
-        
-        return output
+            self.cl = None
+
+        clean = clean.to(dtype)
+        g = torch.sigmoid(self.gate).to(dtype)
+        return base + g * clean
 
 
-def replace_all_mlps(model, tokenizer, avg_mlp_norms):
-    log.info("\n[PHASE 2] REPLACE MLP WITH SYMPHONY ARCHITECTURE (PARALLEL HYBRID)")
-    log.info("=" * 70)
-    
-    num_layers = model.config.num_hidden_layers
-    hidden_dim = model.config.hidden_size
-    
-    log.info(f"  Replacing {num_layers} MLPs with SymphonyASHCLayers...")
-    
-    for layer_idx in range(num_layers):
-        layer = model.model.layers[layer_idx]
-        orig_norm = avg_mlp_norms.get(layer_idx, 1.0)
-        
-        # Keep original MLP and freeze its parameters explicitly
-        original_mlp = layer.mlp
-        for param in original_mlp.parameters():
-            param.requires_grad = False
-            
-        # Create Symphony ASH-C Layer (custom layers are initialized in float32 by default)
-        ash_c_layer = SymphonyASHCLayer(hidden_dim, original_mlp, lambda_decay=LAMBDA_DECAY, scale_factor=orig_norm)
-        # Move the layer to device without changing the dtype of submodules (keeping original_mlp in float16)
-        ash_c_layer = ash_c_layer.to(device=DEVICE)
-        
-        # Replace the old MLP directly
-        layer.mlp = ash_c_layer
-        
-        # Ensure only the deep custom layers and gate parameter are trainable
-        for name, param in layer.mlp.named_parameters():
-            if 'original_mlp' not in name:
-                if layer_idx < 20:
-                    param.requires_grad = False
-                else:
-                    param.requires_grad = True
+def inject_layers(mdl, tok, norms):
+    print_fn("\n--- phase 2: inject memory layers ---")
+
+    nl = mdl.config.num_hidden_layers
+    dim = mdl.config.hidden_size
+
+    print_fn(f"replacing {nl} mlps")
+
+    for i in range(nl):
+        layer = mdl.model.layers[i]
+        orig = layer.mlp
+        for p in orig.parameters():
+            p.requires_grad = False
+
+        mem = MemLayer(dim, orig, lam=decay, scale=norms.get(i, 1.0))
+        mem = mem.to(device=dev)
+        layer.mlp = mem
+
+        for n, p in layer.mlp.named_parameters():
+            if 'orig_mlp' not in n:
+                p.requires_grad = True
 
     gc.collect()
     torch.cuda.empty_cache()
-    
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    log.info(f"  [PHASE 2 COMPLETE] FHRR Memory layers injected (Parallel Hybrid). Trainable params: {trainable_params:,}")
-    return model
+
+    tp = sum(p.numel() for p in mdl.parameters() if p.requires_grad)
+    print_fn(f"phase 2 done, trainable: {tp:,}")
+    return mdl
 
 
-# ============================================================
-# DATASET SETUP
-# ============================================================
-class TitanReasoningDataset(Dataset):
-    def __init__(self, jsonl_path, tokenizer, max_len=512):
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-        self.samples = []
-        
-        log.info(f"  Loading dataset from: {jsonl_path}")
-        with open(jsonl_path, 'r', encoding='utf-8') as f:
+class TrainData(Dataset):
+    def __init__(self, path, tok, ml=512):
+        self.tok = tok
+        self.ml = ml
+        self.data = []
+
+        print_fn(f"loading data from {path}")
+        with open(path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -545,303 +428,291 @@ class TitanReasoningDataset(Dataset):
                     item = json.loads(line)
                     inp, out = item.get('input', ''), item.get('output', '')
                     if inp and out:
-                        self.samples.append((inp, out))
+                        self.data.append((inp, out))
                 except json.JSONDecodeError:
                     continue
-        # Slice the dataset if it exceeds the max allowed budget
-        if MAX_TRAIN_SAMPLES is not None and len(self.samples) > MAX_TRAIN_SAMPLES:
-            log.info(f"  Slicing dataset from {len(self.samples)} down to {MAX_TRAIN_SAMPLES} to fit Kaggle time limit")
-            self.samples = self.samples[:MAX_TRAIN_SAMPLES]
-        log.info(f"  Loaded {len(self.samples)} samples")
-    
+        if max_samples is not None and len(self.data) > max_samples:
+            print_fn(f"slicing {len(self.data)} to {max_samples}")
+            self.data = self.data[:max_samples]
+        print_fn(f"loaded {len(self.data)} samples")
+
     def __len__(self):
-        return len(self.samples)
-    
+        return len(self.data)
+
     def __getitem__(self, idx):
-        inp, out = self.samples[idx]
-        text = f"Question: {inp}\nAnswer: {out}{self.tokenizer.eos_token}"
-        encoded = self.tokenizer(text, max_length=self.max_len, truncation=True, padding=False, return_tensors='pt')
-        input_ids = encoded['input_ids'].squeeze(0)
-        attention_mask = encoded['attention_mask'].squeeze(0)
-        
-        labels = input_ids.clone()
-        labels[attention_mask == 0] = -100
-        return {'input_ids': input_ids, 'attention_mask': attention_mask, 'labels': labels}
+        inp, out = self.data[idx]
+        text = f"Question: {inp}\nAnswer: {out}{self.tok.eos_token}"
+        enc = self.tok(text, max_length=self.ml, truncation=True, padding=False, return_tensors='pt')
+        ids = enc['input_ids'].squeeze(0)
+        mask = enc['attention_mask'].squeeze(0)
+        labels = ids.clone()
+        labels[mask == 0] = -100
+        return {'input_ids': ids, 'attention_mask': mask, 'labels': labels}
 
 
-# ============================================================
-# SCHEDULER & UTILS
-# ============================================================
-def get_lr(step, total_steps, warmup_steps, max_lr):
-    if step < warmup_steps:
-        return max_lr * step / max(warmup_steps, 1)
-    progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
-    return max_lr * 0.5 * (1 + math.cos(math.pi * progress))
+def cosine_lr(step, total, wu, max_lr):
+    if step < wu:
+        return max_lr * step / max(wu, 1)
+    prog = (step - wu) / max(total - wu, 1)
+    return max_lr * 0.5 * (1 + math.cos(math.pi * prog))
 
-def save_checkpoint(model, optimizer, step, loss, epoch, is_epoch=False):
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def save_ckpt(mdl, opt, step, loss, epoch, is_epoch=False):
+    os.makedirs(ckpt_dir, exist_ok=True)
     tag = f"epoch{epoch+1}" if is_epoch else f"step{step}"
-    ckpt_path = os.path.join(OUTPUT_DIR, f"titan_symphony_{tag}.pt")
-    
-    if KEEP_ONLY_LATEST:
-        for old_file in os.listdir(OUTPUT_DIR):
-            if old_file.startswith("titan_symphony_") and old_file.endswith(".pt"):
-                old_path = os.path.join(OUTPUT_DIR, old_file)
+    path = os.path.join(ckpt_dir, f"titan_symphony_{tag}.pt")
+
+    if keep_latest:
+        for f in os.listdir(ckpt_dir):
+            if f.startswith("titan_symphony_") and f.endswith(".pt"):
                 try:
-                    os.remove(old_path)
+                    os.remove(os.path.join(ckpt_dir, f))
                 except:
                     pass
-    
-    # Save all custom Symphony weights (trainable AND frozen ones) so layers 0-19 are preserved exactly
-    memory_state = {
-        name: param.data.cpu()
-        for name, param in model.named_parameters()
-        if (param.requires_grad or ('.mlp.' in name and 'original_mlp' not in name))
+
+    weights = {
+        n: p.data.cpu()
+        for n, p in mdl.named_parameters()
+        if (p.requires_grad or ('.mlp.' in n and 'orig_mlp' not in n))
     }
-    
+
     torch.save({
-        'step': step,
-        'epoch': epoch,
-        'loss': loss,
-        'memory_state_dict': memory_state,
-        'optimizer_state_dict': optimizer.state_dict()
-    }, ckpt_path)
-    log.info(f"  [SAVED] {ckpt_path} ({os.path.getsize(ckpt_path) / 1e6:.1f} MB, loss={loss:.4f})")
+        'step': step, 'epoch': epoch, 'loss': loss,
+        'memory_state_dict': weights,
+        'optimizer_state_dict': opt.state_dict()
+    }, path)
+    print_fn(f"saved {path} ({os.path.getsize(path)/1e6:.1f} MB, loss={loss:.4f})")
 
-def test_generation(model, tokenizer):
-    log.info("\n  --- POST-TRAINING GENERATION TEST ---")
-    model.eval()
-    test_prompts = ["Question: What is 15 * 7?\nAnswer:", "Question: If A > B and B > C, is A > C?\nAnswer:"]
-    for prompt in test_prompts:
-        inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
-        
-        # Reset memory state
-        for name, module in model.named_modules():
-            if isinstance(module, SymphonyASHCLayer):
-                module.reset_state()
-                
+
+def test_gen(mdl, tok):
+    print_fn("\n--- generation test ---")
+    mdl.eval()
+    prompts = ["Question: What is 15 * 7?\nAnswer:", "Question: If A > B and B > C, is A > C?\nAnswer:"]
+    for p in prompts:
+        inputs = tok(p, return_tensors="pt").to(dev)
+        for n, m in mdl.named_modules():
+            if isinstance(m, MemLayer):
+                m.reset_state()
         with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=50, temperature=0.7, do_sample=True, pad_token_id=tokenizer.eos_token_id)
-        response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-        log.info(f"\n  Q: {prompt.split(chr(10))[0]}\n  A: {response[:150]}")
-    model.train()
+            with torch.amp.autocast('cuda', dtype=fp):
+                out = mdl.generate(**inputs, max_new_tokens=50, temperature=0.7, do_sample=True, pad_token_id=tok.eos_token_id)
+        resp = tok.decode(out[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        print_fn(f"Q: {p.split(chr(10))[0]}")
+        print_fn(f"A: {resp[:150]}")
+    mdl.train()
 
 
-# ============================================================
-# TRAINING LOOP
-# ============================================================
 def train():
-    # Set seed for reproducibility
     torch.manual_seed(42)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(42)
-        
-    print_config()
-    model, tokenizer, breakdown = load_and_freeze()
-    model = replace_all_mlps(model, tokenizer, breakdown['avg_mlp_norms'])
-    
-    if USE_GRADIENT_CHECKPOINTING:
-        model.gradient_checkpointing_enable()
-        log.info("  Gradient checkpointing: ENABLED")
-        
-    if not os.path.exists(DATASET_PATH):
-        log.error(f"  Dataset not found at {DATASET_PATH}. Please check your Kaggle input path!")
+
+    show_config()
+    mdl, tok, norms = load_and_freeze()
+    mdl = inject_layers(mdl, tok, norms)
+
+    if use_grad_ckpt:
+        mdl.gradient_checkpointing_enable()
+        print_fn("gradient checkpointing on")
+
+    if not os.path.exists(data_path):
+        print_fn(f"dataset not found at {data_path}")
         return
-        
-    dataset = TitanReasoningDataset(DATASET_PATH, tokenizer, max_len=MAX_SEQ_LEN)
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True, drop_last=True)
-    
-    steps_per_epoch = len(dataloader) // GRADIENT_ACCUMULATION
-    total_steps = steps_per_epoch * EPOCHS
-    
-    trainable_param_list = [p for p in model.parameters() if p.requires_grad]
-    optimizer = Adafactor(
-        trainable_param_list,
-        lr=LEARNING_RATE,
-        scale_parameter=False,
-        relative_step=False,
-        warmup_init=False,
-        weight_decay=WEIGHT_DECAY,
-    )
-    
-    # Initialize GradScaler for stable float16 training
-    scaler = torch.amp.GradScaler('cuda') if DTYPE == torch.float16 else None
-    
-    log.info("\n[STEP 4] Starting training...")
-    log.info("=" * 70)
-    
-    global_step = 0
-    start_epoch = 0
-    best_loss = float('inf')
-    
-    if RESUME_FROM_CHECKPOINT and os.path.exists(RESUME_FROM_CHECKPOINT):
-        log.info(f"Resuming training from checkpoint: {RESUME_FROM_CHECKPOINT}")
-        checkpoint = torch.load(RESUME_FROM_CHECKPOINT, map_location=DEVICE)
-        state_dict = checkpoint['memory_state_dict']
-        
-        # Surgical weight migration for SwiGLU Prism (shape mismatch: hidden_dim -> hidden_dim * 2)
-        model_dict = model.state_dict()
-        migrated_dict = {}
-        for name, param in state_dict.items():
-            mapped_name = name.replace(".mlp.fhrr.", ".mlp.")
-            mapped_name = mapped_name.replace(".mlp.w1.weight", ".mlp.prism_w1.weight")
-            mapped_name = mapped_name.replace(".mlp.w2.weight", ".mlp.prism_w2.weight")
-            mapped_name = mapped_name.replace(".mlp.w3.weight", ".mlp.prism_w3.weight")
-            if mapped_name in model_dict:
-                if param.shape == model_dict[mapped_name].shape:
-                    migrated_dict[mapped_name] = param
+
+    ds = TrainData(data_path, tok, ml=seq_len)
+    dl = DataLoader(ds, batch_size=bs, shuffle=True, num_workers=0, pin_memory=True, drop_last=True)
+
+    spe = len(dl) // grad_acc
+    total = spe * epochs
+
+    params = [p for p in mdl.parameters() if p.requires_grad]
+    opt = Adafactor(params, lr=lr, scale_parameter=False, relative_step=False, warmup_init=False, weight_decay=wd)
+
+    scaler = torch.amp.GradScaler('cuda') if fp == torch.float16 else None
+
+    print_fn(f"\nstarting training, {total} steps total")
+
+    gstep = 0
+    start_ep = 0
+    best = float('inf')
+
+    cf = resume_path
+    if not cf and os.path.exists(ckpt_dir):
+        files = [f for f in os.listdir(ckpt_dir) if f.startswith("titan_symphony_") and f.endswith(".pt")]
+        if files:
+            files.sort(key=lambda x: os.path.getmtime(os.path.join(ckpt_dir, x)))
+            cf = os.path.join(ckpt_dir, files[-1])
+
+    if cf and os.path.exists(cf):
+        print_fn(f"resuming from {cf}")
+        ckpt = torch.load(cf, map_location=dev)
+        sd = ckpt['memory_state_dict']
+
+        md = mdl.state_dict()
+        migrated = {}
+        for name, param in sd.items():
+            mn = name.replace(".mlp.fhrr.", ".mlp.")
+            mn = mn.replace(".mlp.w1.weight", ".mlp.pw1.weight")
+            mn = mn.replace(".mlp.w2.weight", ".mlp.pw2.weight")
+            mn = mn.replace(".mlp.w3.weight", ".mlp.pw3.weight")
+            mn = mn.replace("key_proj", "kp")
+            mn = mn.replace("value_proj", "vp")
+            mn = mn.replace("query_proj", "qp")
+            mn = mn.replace("prism_w1", "pw1")
+            mn = mn.replace("prism_w2", "pw2")
+            mn = mn.replace("prism_w3", "pw3")
+            mn = mn.replace("salience_proj", "proj")
+            mn = mn.replace("phantom_cache", "cache")
+            mn = mn.replace("m_state", "mem")
+            mn = mn.replace("last_contrastive_loss", "cl")
+            if mn in md:
+                if param.shape == md[mn].shape:
+                    migrated[mn] = param
                 else:
-                    # Catch the SwiGLU Prism weights that doubled in size
-                    if 'prism_w1.weight' in mapped_name or 'prism_w2.weight' in mapped_name:
-                        log.info(f"  Surgically migrating weight for {mapped_name}: {param.shape} -> {model_dict[mapped_name].shape}")
-                        new_param = model_dict[mapped_name].clone()
+                    if 'pw1.weight' in mn or 'pw2.weight' in mn:
+                        print_fn(f"migrating {mn}: {param.shape} -> {md[mn].shape}")
+                        np = md[mn].clone()
                         H = param.shape[1]
-                        # First half (FHRR input branch) gets checkpoint weights
-                        new_param[:, :H] = param
-                        # Second half (Exact Cache input branch) is initialized to zero to prevent noise
-                        new_param[:, H:] = 0.0
-                        migrated_dict[mapped_name] = new_param
+                        np[:, :H] = param
+                        np[:, H:] = 0.0
+                        migrated[mn] = np
                     else:
-                        log.warning(f"  Skipping {mapped_name} due to shape mismatch: {param.shape} vs {model_dict[mapped_name].shape}")
+                        print_fn(f"skipping {mn}, shape mismatch")
             else:
-                log.warning(f"  Checkpoint weight {name} (mapped to {mapped_name}) not found in current model.")
-                
-        model.load_state_dict(migrated_dict, strict=False)
-        
-        # Load optimizer state if available to prevent gradient spikes
-        if 'optimizer_state_dict' in checkpoint:
+                print_fn(f"key {name} not found in model")
+
+        mdl.load_state_dict(migrated, strict=False)
+
+        if 'optimizer_state_dict' in ckpt:
             try:
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                log.info("  Optimizer states successfully restored.")
+                opt.load_state_dict(ckpt['optimizer_state_dict'])
+                print_fn("optimizer restored")
             except Exception as e:
-                log.warning(f"  Could not load optimizer states: {e}. Starting with clean optimizer moments.")
-                
-        global_step = checkpoint.get('step', 0)
-        start_epoch = checkpoint.get('epoch', 0)
-        best_loss = checkpoint.get('loss', float('inf'))
-        log.info(f"Surgically loaded checkpoint at step {global_step}, epoch {start_epoch}, best loss {best_loss:.4f}")
-    
-    train_start = time.time()
-    model.train()
-    
-    for epoch in range(start_epoch, EPOCHS):
-        epoch_start = time.time()
-        epoch_loss = 0.0
-        micro_step = 0
-        accumulated_loss = 0.0
-        epoch_tokens = 0
-        
-        for batch in dataloader:
-            input_ids = batch['input_ids'].to(DEVICE)
-            attention_mask = batch['attention_mask'].to(DEVICE)
-            labels = batch['labels'].to(DEVICE)
-            
-            # Reset memory state for each batch to prevent gradient leaks
-            for name, module in model.named_modules():
-                if isinstance(module, SymphonyASHCLayer):
-                    module.reset_state()
-            
-            with torch.amp.autocast('cuda', dtype=DTYPE):
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                clm_loss = outputs.loss
-                
-                # Retrieve self-supervised contrastive alignment loss
-                contrastive_loss = 0.0
-                num_ash_layers = 0
-                for name, module in model.named_modules():
-                    if isinstance(module, SymphonyASHCLayer) and module.last_contrastive_loss is not None:
-                        contrastive_loss += module.last_contrastive_loss
-                        num_ash_layers += 1
-                        
-                if num_ash_layers > 0:
-                    contrastive_loss = contrastive_loss / num_ash_layers
-                    # Mix classification loss and contrastive alignment loss
-                    total_loss = clm_loss + 0.05 * contrastive_loss
+                print_fn(f"optimizer restore failed: {e}")
+
+        gstep = ckpt.get('step', 0)
+        start_ep = ckpt.get('epoch', 0)
+        best = ckpt.get('loss', float('inf'))
+        print_fn(f"resumed at step {gstep}, epoch {start_ep}, loss {best:.4f}")
+
+    t0 = time.time()
+    mdl.train()
+
+    for ep in range(start_ep, epochs):
+        ep_start = time.time()
+        ep_loss = 0.0
+        ms = 0
+        acc_loss = 0.0
+        ep_toks = 0
+
+        if ep == start_ep and gstep > 0:
+            skip_n = (gstep % spe) * grad_acc
+            if skip_n > 0:
+                print_fn(f"fast-forwarding {skip_n} micro-steps")
+        else:
+            skip_n = 0
+
+        for batch in dl:
+            if ms < skip_n:
+                ms += 1
+                continue
+
+            ids = batch['input_ids'].to(dev)
+            mask = batch['attention_mask'].to(dev)
+            labels = batch['labels'].to(dev)
+
+            for n, m in mdl.named_modules():
+                if isinstance(m, MemLayer):
+                    m.reset_state()
+
+            with torch.amp.autocast('cuda', dtype=fp):
+                out = mdl(input_ids=ids, attention_mask=mask, labels=labels)
+                clm = out.loss
+
+                cl_total = 0.0
+                cl_count = 0
+                for n, m in mdl.named_modules():
+                    if isinstance(m, MemLayer) and m.cl is not None:
+                        cl_total += m.cl
+                        cl_count += 1
+
+                if cl_count > 0:
+                    total_loss = clm + 0.05 * (cl_total / cl_count)
                 else:
-                    total_loss = clm_loss
-                
-                loss = total_loss / GRADIENT_ACCUMULATION
-            
+                    total_loss = clm
+
+                loss = total_loss / grad_acc
+
             if scaler is not None:
                 scaler.scale(loss).backward()
             else:
                 loss.backward()
-                
-            accumulated_loss += loss.item()
-            num_tokens = (labels != -100).sum().item()
-            epoch_tokens += num_tokens
-            micro_step += 1
-            
-            if micro_step % GRADIENT_ACCUMULATION == 0:
+
+            acc_loss += loss.item()
+            ntok = (labels != -100).sum().item()
+            ep_toks += ntok
+            ms += 1
+
+            if ms % grad_acc == 0:
                 if scaler is not None:
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(trainable_param_list, MAX_GRAD_NORM)
-                    
-                    current_lr = get_lr(global_step, total_steps, WARMUP_STEPS, LEARNING_RATE)
-                    for pg in optimizer.param_groups:
-                        pg['lr'] = current_lr
-                        
-                    scaler.step(optimizer)
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(params, clip_norm)
+                    cur_lr = cosine_lr(gstep, total, warmup, lr)
+                    for pg in opt.param_groups:
+                        pg['lr'] = cur_lr
+                    scaler.step(opt)
                     scaler.update()
                 else:
-                    torch.nn.utils.clip_grad_norm_(trainable_param_list, MAX_GRAD_NORM)
-                    
-                    current_lr = get_lr(global_step, total_steps, WARMUP_STEPS, LEARNING_RATE)
-                    for pg in optimizer.param_groups:
-                        pg['lr'] = current_lr
-                        
-                    optimizer.step()
-                    
-                optimizer.zero_grad()
-                
-                global_step += 1
-                epoch_loss += accumulated_loss
-                
-                if global_step % 10 == 0 or global_step == 1:
-                    tokens_per_sec = epoch_tokens / max(time.time() - epoch_start, 0.1)
-                    log.info(f"  Step {global_step:4d}/{total_steps} | Loss: {accumulated_loss:.4f} | LR: {current_lr:.2e} | Tok/s: {tokens_per_sec:.0f}")
-                
-                if SAVE_CHECKPOINTS and global_step % SAVE_INTERVAL == 0:
-                    save_checkpoint(model, optimizer, global_step, accumulated_loss, epoch)
-                
-                if accumulated_loss < best_loss:
-                    best_loss = accumulated_loss
-                    
-                accumulated_loss = 0.0
-                
-        avg_epoch_loss = epoch_loss / max(steps_per_epoch, 1)
-        log.info(f"\n  Epoch {epoch + 1} complete | Avg Loss: {avg_epoch_loss:.4f} | Time: {time.time() - epoch_start:.1f}s")
-        save_checkpoint(model, optimizer, global_step, avg_epoch_loss, epoch, is_epoch=True)
-    
-    log.info("\n" + "=" * 70)
-    log.info("TRAINING COMPLETE - EXPORTING WEIGHTS...")
-    log.info("=" * 70)
-    
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-    
-    # Save Symphony weights
-    memory_state = {
-        name: param.data.to(DTYPE).cpu()
-        for name, param in model.named_parameters()
-        if param.requires_grad
+                    torch.nn.utils.clip_grad_norm_(params, clip_norm)
+                    cur_lr = cosine_lr(gstep, total, warmup, lr)
+                    for pg in opt.param_groups:
+                        pg['lr'] = cur_lr
+                    opt.step()
+
+                opt.zero_grad()
+                gstep += 1
+                ep_loss += acc_loss
+
+                if gstep % 10 == 0 or gstep == 1:
+                    tps = ep_toks / max(time.time() - ep_start, 0.1)
+                    print_fn(f"step {gstep:4d}/{total} | loss: {acc_loss:.4f} | lr: {cur_lr:.2e} | tok/s: {tps:.0f}")
+
+                if save_ckpts and gstep % save_every == 0:
+                    save_ckpt(mdl, opt, gstep, acc_loss, ep)
+
+                if acc_loss < best:
+                    best = acc_loss
+
+                acc_loss = 0.0
+
+        avg = ep_loss / max(spe, 1)
+        print_fn(f"\nepoch {ep+1} done | avg loss: {avg:.4f} | time: {time.time()-ep_start:.1f}s")
+        save_ckpt(mdl, opt, gstep, avg, ep, is_epoch=True)
+
+    print_fn("\ntraining complete, exporting weights")
+
+    os.makedirs(export_dir, exist_ok=True)
+
+    weights = {
+        n: p.data.to(fp).cpu()
+        for n, p in mdl.named_parameters()
+        if p.requires_grad
     }
-    weights_path = os.path.join(EXPORT_DIR, "titan_symphony_weights.pt")
-    torch.save(memory_state, weights_path)
-    
-    # Save Titan metadata
+    wp = os.path.join(export_dir, "titan_symphony_weights.pt")
+    torch.save(weights, wp)
+
     meta = {
         "engine": "Titan Engine - Symphony Architecture",
-        "source_model": SOURCE_MODEL,
+        "source_model": model_path,
         "frozen": ["attention", "embeddings", "norms", "lm_head"],
         "trained": ["mlp (FHRRMemoryLayer)"],
-        "lambda_decay": LAMBDA_DECAY
+        "lambda_decay": decay
     }
-    with open(os.path.join(EXPORT_DIR, "titan_symphony_metadata.json"), "w") as f:
+    with open(os.path.join(export_dir, "titan_symphony_metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
-        
-    log.info(f"  Weights exported to: {weights_path}")
-    
-    test_generation(model, tokenizer)
+
+    print_fn(f"weights saved to {wp}")
+    test_gen(mdl, tok)
 
 
 if __name__ == "__main__":
