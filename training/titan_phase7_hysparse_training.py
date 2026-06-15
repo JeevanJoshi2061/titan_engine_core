@@ -12,20 +12,23 @@ import sys
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(script_dir, "../core")))
 
-from titan_ash_c_architecture import SymphonyASHCLayer
-from titan_hep_dna import SymphonyHEPDNALayer
+from titan_ash_c_architecture import MemLayer
+from titan_hep_dna import PointerNet
 from titan_config import SOURCE_MODEL, DEVICE, DTYPE
 
-PHASE4_WEIGHTS = r"E:\titan Engine new\Results\titan_symphony_weights.pt"
+PHASE4_WEIGHTS = r"E:\titan Engine new\phase 4 result\titan_symphony_weights.pt"
 PHASE5_WEIGHTS = r"E:\titan Engine new\checkpoints_phase6\titan_hepdna_longrange_final.pt"
 OUTPUT_DIR = r"E:\titan Engine new\checkpoints_phase7"
 
 BATCH_SIZE = 1
-LEARNING_RATE = 1e-4
-MAX_STEPS = 500
+LEARNING_RATE = 2e-3
+MAX_STEPS = 1000
 
 SCALE_SCHEDULE = [
-    (500,  4096),
+    (300,  512),
+    (600,  1024),
+    (800,  2048),
+    (1000, 4096),
 ]
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -128,22 +131,24 @@ class LongRangeCopyDataset(IterableDataset):
             )
             
             input_ids = encoded["input_ids"][0]
-            labels = input_ids.clone()
             
-            assistant_token = self.tokenizer.encode("<|im_start|>assistant", add_special_tokens=False)
+            code_ids = self.tokenizer.encode(secret_code, add_special_tokens=False)
             
-            start_idx = -1
-            for i in range(len(input_ids) - len(assistant_token)):
-                if input_ids[i:i+len(assistant_token)].tolist() == assistant_token:
-                    start_idx = i + len(assistant_token)
+            code_start_idx = -1
+            L = len(code_ids)
+            for i in range(len(input_ids) - L, -1, -1):
+                if input_ids[i:i+L].tolist() == code_ids:
+                    code_start_idx = i
                     break
                     
-            if start_idx == -1:
+            if code_start_idx == -1:
                 continue
-            else:
-                labels[:start_idx] = -100
-                labels[input_ids == self.tokenizer.pad_token_id] = -100
                 
+            code_end_idx = code_start_idx + L
+            
+            labels = torch.full_like(input_ids, -100)
+            labels[code_start_idx:code_end_idx] = input_ids[code_start_idx:code_end_idx]
+            
             yield {
                 "input_ids": input_ids,
                 "labels": labels
@@ -167,28 +172,25 @@ def prepare_model():
     
     for idx in range(20, 28):
         original_mlp = model.model.layers[idx].mlp
-        symphony_layer = SymphonyASHCLayer(hidden_dim, original_mlp)
+        symphony_layer = MemLayer(hidden_dim, original_mlp)
         symphony_layer = symphony_layer.to(device=device, dtype=torch.bfloat16)
         model.model.layers[idx].mlp = symphony_layer
         
     log.info(f"Loading Phase 4 weights from {PHASE4_WEIGHTS}...")
     state_dict = torch.load(PHASE4_WEIGHTS, map_location=device, weights_only=True)
-    custom_state = {k: v for k, v in state_dict.items() if any(x in k for x in ["mlp.router", "mlp.prism", "mlp.gate", "mlp.key_proj", "mlp.query_proj", "mlp.value_proj"])}
+    custom_state = {k: v for k, v in state_dict.items() if any(x in k for x in ["mlp.router", "mlp.pw", "mlp.gate", "mlp.kp", "mlp.qp", "mlp.vp"])}
     model.load_state_dict(custom_state, strict=False)
     
     max_training_len = SCALE_SCHEDULE[-1][1]
-    hep_dna = SymphonyHEPDNALayer(
-        hidden_dim=hidden_dim, 
-        vocab_size=model.config.vocab_size,
-        max_seq_len=max_training_len,
+    hep_dna = PointerNet(
+        dim=hidden_dim, 
+        vocab=model.config.vocab_size,
+        max_len=max_training_len,
+        lam=0.999,
         use_triton=False
     ).to(device=device, dtype=torch.bfloat16)
     
-    log.info(f"Loading Phase 5 pointer checkpoint: {PHASE5_WEIGHTS}")
-    pointer_state = torch.load(PHASE5_WEIGHTS, map_location=device, weights_only=True)
-    if "pos_embeddings" in pointer_state:
-        del pointer_state["pos_embeddings"]
-    hep_dna.load_state_dict(pointer_state, strict=False)
+    log.info("Initializing HEP-DNA pointer from scratch for unified training...")
     
     for param in model.parameters():
         param.requires_grad = False
@@ -223,6 +225,8 @@ def train():
                 current_seq_len = SCALE_SCHEDULE[current_scale_idx][1]
                 dataset = LongRangeCopyDataset(tokenizer, seq_len=current_seq_len)
                 dataloader = iter(DataLoader(dataset, batch_size=BATCH_SIZE))
+                # NTK-aware rescaling for position embeddings
+                hep_dna.rescale_positions_ntk(current_seq_len)
                 log.info(f"Stepping to SEQ_LEN = {current_seq_len}")
         
         try:
@@ -234,14 +238,21 @@ def train():
         input_ids = batch["input_ids"].to(device)
         labels = batch["labels"].to(device)
         
-        optimizer.zero_grad()
-        
+        # Reset layers and pointer recurrence states for new sequence
         for layer in model.model.layers:
             if hasattr(layer.mlp, "reset_state"):
                 layer.mlp.reset_state()
-                
+        hep_dna.reset_inference_state()
+        
+        # Construct 4D sliding window causal mask with window_size = 1 (complete past blinding)
+        S = input_ids.shape[1]
+        mask_2d = torch.full((S, S), float("-inf"), device=device, dtype=torch.bfloat16)
+        for i in range(S):
+            mask_2d[i, i] = 0.0
+        mask_4d = mask_2d.unsqueeze(0).unsqueeze(0)
+        
         with torch.no_grad():
-            outputs = model.model(input_ids)
+            outputs = model.model(input_ids, attention_mask=mask_4d)
             hidden_states = outputs.last_hidden_state
             lm_logits = model.lm_head(hidden_states)
             
@@ -254,6 +265,12 @@ def train():
         if not valid_mask.any():
             continue
             
+        optimizer.zero_grad()
+        
+        # Pass the ENTIRE sequence through HEP-DNA at once!
+        # Since Qwen is frozen (no_grad), the pointer takes <200MB VRAM even for 8192 tokens.
+        # This preserves the full continuous computation graph, allowing gradients to flow
+        # perfectly from queries all the way back to keys thousands of tokens ago!
         loss_tensor, gate_tensor = hep_dna(
             hidden_states=shift_hidden,
             input_ids=shift_input_ids,
@@ -261,20 +278,21 @@ def train():
             target_ids=shift_labels
         )
         
-        masked_loss = loss_tensor[valid_mask]
-        loss = masked_loss.mean()
-        mean_gate = gate_tensor.squeeze(-1)[valid_mask].mean().item()
-        
+        loss = loss_tensor[valid_mask].mean()
         loss.backward()
+        
         torch.nn.utils.clip_grad_norm_(hep_dna.parameters(), 1.0)
         optimizer.step()
+        
+        loss_val = loss.item()
+        mean_gate = gate_tensor.squeeze(-1)[valid_mask].mean().item()
         
         step += 1
         
         if step % 10 == 0:
             elapsed = time.time() - start_time
             tok_per_sec = (BATCH_SIZE * current_seq_len * 10) / elapsed
-            log.info(f"Step {step:04d}/{MAX_STEPS} | SEQ={current_seq_len} | Loss: {loss.item():.4f} | Gate: {mean_gate:.4f} | Tok/s: {tok_per_sec:.0f}")
+            log.info(f"Step {step:04d}/{MAX_STEPS} | SEQ={current_seq_len} | Loss: {loss_val:.4f} | Gate: {mean_gate:.4f} | Tok/s: {tok_per_sec:.0f}")
             start_time = time.time()
             
         if step % 200 == 0:
