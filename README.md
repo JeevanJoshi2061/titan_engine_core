@@ -1,5 +1,7 @@
 # Titan Engine: Symphony Architecture
 
+📄 **[Read the Full Paper (PDF)](Symphony_Paper.pdf)**
+
 An experimental sequence modeling engine that runs on constant memory.
 
 Symphony replaces the standard Transformer KV-Cache. Instead of eating up more VRAM as your context grows, it uses a fixed, constant amount of memory.
@@ -61,9 +63,11 @@ Look inside the `evaluation/` folder to verify the model's performance:
 
 Based on concepts from FHRR/VSAs, Pointer Networks, and State Space Models.
 
+📄 **[Read the Full Technical Paper (PDF)](Symphony_Paper.pdf)**
+
 Jeevan Joshi (2026). *Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks.*
 
-DOI: 10.5281/zenodo.20566771
+DOI: [10.5281/zenodo.20566771](https://doi.org/10.5281/zenodo.20566771)
 
 ```bibtex
 @misc{joshi2026symphony,
