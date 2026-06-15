@@ -1,0 +1,531 @@
+6.4s	1	0.00s - Debugger warning: It seems that frozen modules are being used, which may
+6.4s	2	0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+6.4s	3	0.00s - to python to disable frozen modules.
+6.4s	4	0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+6.9s	5	0.00s - Debugger warning: It seems that frozen modules are being used, which may
+6.9s	6	0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+6.9s	7	0.00s - to python to disable frozen modules.
+6.9s	8	0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+29.8s	9	model: /kaggle/input/models/qwen-lm/qwen2.5/transformers/1.5b-instruct/1
+29.8s	10	data: /kaggle/input/datasets/tsfmaster/142mb-universal-datasets/universal_titan_reasoning.jsonl
+29.8s	11	device: cuda, dtype: torch.float16
+29.8s	12	hidden: 1536, mlp: 8960
+29.8s	13	batch: 1 x 16 = 16
+29.8s	14	lr: 0.0001, grad_ckpt: True
+29.8s	15	
+29.8s	16	--- phase 1: load and freeze ---
+29.8s	17	loading tokenizer from /kaggle/input/models/qwen-lm/qwen2.5/transformers/1.5b-instruct/1
+30.2s	18	`torch_dtype` is deprecated! Use `dtype` instead!
+30.2s	19	
+30.2s	20	`torch_dtype` is deprecated! Use `dtype` instead!
+30.4s	21	loading model in torch.float16
+38.6s	22	frozen 338/338 params
+38.6s	23	capturing mlp norms
+38.6s	24	loaded 50 calibration samples
+43.7s	25	phase 1 done
+43.7s	26	
+43.7s	27	--- phase 2: inject memory layers ---
+43.7s	28	replacing 28 mlps
+50.6s	29	phase 2 done, trainable: 528,611,412
+50.6s	30	gradient checkpointing on
+50.6s	31	loading data from /kaggle/input/datasets/tsfmaster/142mb-universal-datasets/universal_titan_reasoning.jsonl
+53.2s	32	`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+53.2s	33	
+53.2s	34	`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+53.4s	35	loaded 79738 samples
+53.4s	36	
+53.4s	37	starting training, 9966 steps total
+65.7s	38	step    1/9966 | loss: 2.3787 | lr: 0.00e+00 | tok/s: 495
+173.3s	39	step   10/9966 | loss: 2.1626 | lr: 3.00e-06 | tok/s: 517
+292.7s	40	step   20/9966 | loss: 2.1465 | lr: 6.33e-06 | tok/s: 504
+414.3s	41	step   30/9966 | loss: 2.2686 | lr: 9.67e-06 | tok/s: 504
+538.6s	42	step   40/9966 | loss: 2.2683 | lr: 1.30e-05 | tok/s: 508
+659.9s	43	step   50/9966 | loss: 2.2181 | lr: 1.63e-05 | tok/s: 507
+777.4s	44	step   60/9966 | loss: 1.8738 | lr: 1.97e-05 | tok/s: 502
+899.3s	45	step   70/9966 | loss: 2.3576 | lr: 2.30e-05 | tok/s: 502
+1015.6s	46	step   80/9966 | loss: 1.8730 | lr: 2.63e-05 | tok/s: 500
+1138.5s	47	step   90/9966 | loss: 2.0988 | lr: 2.97e-05 | tok/s: 501
+1257.2s	48	step  100/9966 | loss: 2.3952 | lr: 3.30e-05 | tok/s: 499
+1378.3s	49	step  110/9966 | loss: 1.9608 | lr: 3.63e-05 | tok/s: 499
+1498.9s	50	step  120/9966 | loss: 2.1686 | lr: 3.97e-05 | tok/s: 499
+1618.9s	51	step  130/9966 | loss: 2.3870 | lr: 4.30e-05 | tok/s: 499
+1739.5s	52	step  140/9966 | loss: 1.9850 | lr: 4.63e-05 | tok/s: 499
+1859.0s	53	step  150/9966 | loss: 2.0390 | lr: 4.97e-05 | tok/s: 498
+1978.7s	54	step  160/9966 | loss: 1.7244 | lr: 5.30e-05 | tok/s: 498
+2103.5s	55	step  170/9966 | loss: 1.8938 | lr: 5.63e-05 | tok/s: 499
+2224.4s	56	step  180/9966 | loss: 2.2748 | lr: 5.97e-05 | tok/s: 499
+2341.2s	57	step  190/9966 | loss: 1.8340 | lr: 6.30e-05 | tok/s: 497
+2460.0s	58	step  200/9966 | loss: 2.0121 | lr: 6.63e-05 | tok/s: 496
+2578.9s	59	step  210/9966 | loss: 2.1093 | lr: 6.97e-05 | tok/s: 496
+2700.7s	60	step  220/9966 | loss: 2.0944 | lr: 7.30e-05 | tok/s: 496
+2815.4s	61	step  230/9966 | loss: 1.9730 | lr: 7.63e-05 | tok/s: 495
+2935.2s	62	step  240/9966 | loss: 1.8180 | lr: 7.97e-05 | tok/s: 495
+3054.0s	63	step  250/9966 | loss: 2.3470 | lr: 8.30e-05 | tok/s: 495
+3176.4s	64	step  260/9966 | loss: 1.9077 | lr: 8.63e-05 | tok/s: 495
+3296.1s	65	step  270/9966 | loss: 2.2844 | lr: 8.97e-05 | tok/s: 495
+3417.3s	66	step  280/9966 | loss: 2.1122 | lr: 9.30e-05 | tok/s: 496
+3537.7s	67	step  290/9966 | loss: 2.2848 | lr: 9.63e-05 | tok/s: 496
+3659.4s	68	step  300/9966 | loss: 2.1355 | lr: 9.97e-05 | tok/s: 497
+3779.6s	69	step  310/9966 | loss: 2.2777 | lr: 1.00e-04 | tok/s: 497
+3899.3s	70	step  320/9966 | loss: 1.9131 | lr: 1.00e-04 | tok/s: 496
+4017.7s	71	step  330/9966 | loss: 1.8960 | lr: 1.00e-04 | tok/s: 496
+4134.8s	72	step  340/9966 | loss: 1.8959 | lr: 1.00e-04 | tok/s: 496
+4256.1s	73	step  350/9966 | loss: 2.8401 | lr: 1.00e-04 | tok/s: 496
+4377.1s	74	step  360/9966 | loss: 2.0601 | lr: 1.00e-04 | tok/s: 496
+4495.0s	75	step  370/9966 | loss: 2.0539 | lr: 1.00e-04 | tok/s: 495
+4614.1s	76	step  380/9966 | loss: 1.5710 | lr: 1.00e-04 | tok/s: 495
+4729.3s	77	step  390/9966 | loss: 1.6789 | lr: 1.00e-04 | tok/s: 495
+4849.6s	78	step  400/9966 | loss: 2.3462 | lr: 1.00e-04 | tok/s: 495
+4968.1s	79	step  410/9966 | loss: 2.1490 | lr: 1.00e-04 | tok/s: 495
+5088.2s	80	step  420/9966 | loss: 2.3943 | lr: 1.00e-04 | tok/s: 495
+5204.7s	81	step  430/9966 | loss: 1.8867 | lr: 1.00e-04 | tok/s: 494
+5326.5s	82	step  440/9966 | loss: 1.8679 | lr: 9.99e-05 | tok/s: 495
+5444.5s	83	step  450/9966 | loss: 2.2112 | lr: 9.99e-05 | tok/s: 495
+5562.6s	84	step  460/9966 | loss: 2.0936 | lr: 9.99e-05 | tok/s: 494
+5682.8s	85	step  470/9966 | loss: 1.9597 | lr: 9.99e-05 | tok/s: 494
+5803.1s	86	step  480/9966 | loss: 1.7342 | lr: 9.99e-05 | tok/s: 495
+5922.1s	87	step  490/9966 | loss: 2.0865 | lr: 9.99e-05 | tok/s: 495
+6041.9s	88	step  500/9966 | loss: 2.2074 | lr: 9.99e-05 | tok/s: 495
+6045.5s	89	saved /kaggle/working/checkpoints/titan_symphony_step500.pt (2117.3 MB, loss=2.2074)
+6166.1s	90	step  510/9966 | loss: 1.9869 | lr: 9.99e-05 | tok/s: 494
+6282.7s	91	step  520/9966 | loss: 2.0351 | lr: 9.99e-05 | tok/s: 494
+6405.7s	92	step  530/9966 | loss: 2.2215 | lr: 9.99e-05 | tok/s: 494
+6524.4s	93	step  540/9966 | loss: 1.8938 | lr: 9.98e-05 | tok/s: 494
+6642.8s	94	step  550/9966 | loss: 1.8371 | lr: 9.98e-05 | tok/s: 494
+6761.8s	95	step  560/9966 | loss: 1.9429 | lr: 9.98e-05 | tok/s: 494
+6881.3s	96	step  570/9966 | loss: 1.7102 | lr: 9.98e-05 | tok/s: 494
+6999.5s	97	step  580/9966 | loss: 2.1847 | lr: 9.98e-05 | tok/s: 494
+7118.1s	98	step  590/9966 | loss: 2.2711 | lr: 9.98e-05 | tok/s: 494
+7238.5s	99	step  600/9966 | loss: 2.4049 | lr: 9.98e-05 | tok/s: 494
+7356.6s	100	step  610/9966 | loss: 2.0379 | lr: 9.97e-05 | tok/s: 494
+7475.0s	101	step  620/9966 | loss: 2.1950 | lr: 9.97e-05 | tok/s: 494
+7594.4s	102	step  630/9966 | loss: 2.2963 | lr: 9.97e-05 | tok/s: 494
+7714.1s	103	step  640/9966 | loss: 1.9506 | lr: 9.97e-05 | tok/s: 494
+7835.6s	104	step  650/9966 | loss: 2.2311 | lr: 9.97e-05 | tok/s: 494
+7957.1s	105	step  660/9966 | loss: 1.9839 | lr: 9.97e-05 | tok/s: 494
+8076.6s	106	step  670/9966 | loss: 2.1968 | lr: 9.96e-05 | tok/s: 494
+8196.9s	107	step  680/9966 | loss: 2.4574 | lr: 9.96e-05 | tok/s: 494
+8315.4s	108	step  690/9966 | loss: 1.9375 | lr: 9.96e-05 | tok/s: 494
+8434.3s	109	step  700/9966 | loss: 2.4344 | lr: 9.96e-05 | tok/s: 494
+8554.1s	110	step  710/9966 | loss: 1.7893 | lr: 9.96e-05 | tok/s: 494
+8675.9s	111	step  720/9966 | loss: 1.9694 | lr: 9.95e-05 | tok/s: 494
+8798.2s	112	step  730/9966 | loss: 1.9730 | lr: 9.95e-05 | tok/s: 495
+8916.1s	113	step  740/9966 | loss: 2.1433 | lr: 9.95e-05 | tok/s: 494
+9036.0s	114	step  750/9966 | loss: 2.0835 | lr: 9.95e-05 | tok/s: 494
+9158.0s	115	step  760/9966 | loss: 2.0545 | lr: 9.94e-05 | tok/s: 495
+9274.7s	116	step  770/9966 | loss: 2.3550 | lr: 9.94e-05 | tok/s: 494
+9397.0s	117	step  780/9966 | loss: 2.1303 | lr: 9.94e-05 | tok/s: 494
+9516.6s	118	step  790/9966 | loss: 2.4916 | lr: 9.94e-05 | tok/s: 494
+9636.3s	119	step  800/9966 | loss: 2.3391 | lr: 9.93e-05 | tok/s: 494
+9755.2s	120	step  810/9966 | loss: 1.7709 | lr: 9.93e-05 | tok/s: 494
+9876.6s	121	step  820/9966 | loss: 2.5561 | lr: 9.93e-05 | tok/s: 494
+9998.5s	122	step  830/9966 | loss: 2.4131 | lr: 9.93e-05 | tok/s: 494
+10117.0s	123	step  840/9966 | loss: 2.1485 | lr: 9.92e-05 | tok/s: 494
+10240.7s	124	step  850/9966 | loss: 2.1981 | lr: 9.92e-05 | tok/s: 494
+10357.6s	125	step  860/9966 | loss: 2.1020 | lr: 9.92e-05 | tok/s: 494
+10476.9s	126	step  870/9966 | loss: 2.2141 | lr: 9.91e-05 | tok/s: 494
+10597.3s	127	step  880/9966 | loss: 2.1724 | lr: 9.91e-05 | tok/s: 494
+10715.2s	128	step  890/9966 | loss: 1.8385 | lr: 9.91e-05 | tok/s: 494
+10834.2s	129	step  900/9966 | loss: 2.4705 | lr: 9.91e-05 | tok/s: 494
+10953.4s	130	step  910/9966 | loss: 1.7636 | lr: 9.90e-05 | tok/s: 494
+11073.5s	131	step  920/9966 | loss: 2.2391 | lr: 9.90e-05 | tok/s: 494
+11193.7s	132	step  930/9966 | loss: 2.1398 | lr: 9.90e-05 | tok/s: 494
+11316.2s	133	step  940/9966 | loss: 1.9575 | lr: 9.89e-05 | tok/s: 494
+11435.9s	134	step  950/9966 | loss: 2.2170 | lr: 9.89e-05 | tok/s: 494
+11555.0s	135	step  960/9966 | loss: 2.2668 | lr: 9.89e-05 | tok/s: 494
+11679.1s	136	step  970/9966 | loss: 1.9066 | lr: 9.88e-05 | tok/s: 494
+11798.7s	137	step  980/9966 | loss: 1.9738 | lr: 9.88e-05 | tok/s: 494
+11919.9s	138	step  990/9966 | loss: 1.9571 | lr: 9.88e-05 | tok/s: 494
+12042.7s	139	step 1000/9966 | loss: 2.3127 | lr: 9.87e-05 | tok/s: 494
+12046.5s	140	saved /kaggle/working/checkpoints/titan_symphony_step1000.pt (2117.3 MB, loss=2.3127)
+12167.5s	141	step 1010/9966 | loss: 2.2790 | lr: 9.87e-05 | tok/s: 494
+12288.3s	142	step 1020/9966 | loss: 2.0006 | lr: 9.86e-05 | tok/s: 494
+12409.4s	143	step 1030/9966 | loss: 2.2009 | lr: 9.86e-05 | tok/s: 494
+12530.5s	144	step 1040/9966 | loss: 2.0554 | lr: 9.86e-05 | tok/s: 494
+12647.6s	145	step 1050/9966 | loss: 2.6101 | lr: 9.85e-05 | tok/s: 494
+12768.0s	146	step 1060/9966 | loss: 2.1018 | lr: 9.85e-05 | tok/s: 494
+12888.2s	147	step 1070/9966 | loss: 2.0475 | lr: 9.84e-05 | tok/s: 494
+13011.3s	148	step 1080/9966 | loss: 2.1195 | lr: 9.84e-05 | tok/s: 494
+13132.2s	149	step 1090/9966 | loss: 2.0473 | lr: 9.84e-05 | tok/s: 494
+13253.0s	150	step 1100/9966 | loss: 1.9944 | lr: 9.83e-05 | tok/s: 494
+13372.1s	151	step 1110/9966 | loss: 2.4449 | lr: 9.83e-05 | tok/s: 494
+13491.1s	152	step 1120/9966 | loss: 1.6544 | lr: 9.82e-05 | tok/s: 494
+13612.8s	153	step 1130/9966 | loss: 1.3378 | lr: 9.82e-05 | tok/s: 494
+13745.6s	154	step 1140/9966 | loss: 2.0983 | lr: 9.82e-05 | tok/s: 494
+13866.5s	155	step 1150/9966 | loss: 2.1703 | lr: 9.81e-05 | tok/s: 494
+13990.4s	156	step 1160/9966 | loss: 2.4289 | lr: 9.81e-05 | tok/s: 495
+14110.1s	157	step 1170/9966 | loss: 2.0242 | lr: 9.80e-05 | tok/s: 495
+14232.2s	158	step 1180/9966 | loss: 2.2923 | lr: 9.80e-05 | tok/s: 495
+14351.5s	159	step 1190/9966 | loss: 2.1066 | lr: 9.79e-05 | tok/s: 494
+14469.7s	160	step 1200/9966 | loss: 1.6676 | lr: 9.79e-05 | tok/s: 494
+14590.4s	161	step 1210/9966 | loss: 2.1081 | lr: 9.78e-05 | tok/s: 494
+14710.6s	162	step 1220/9966 | loss: 1.9607 | lr: 9.78e-05 | tok/s: 494
+14829.8s	163	step 1230/9966 | loss: 2.0659 | lr: 9.77e-05 | tok/s: 494
+14973.5s	164	step 1240/9966 | loss: 2.3492 | lr: 9.77e-05 | tok/s: 494
+15116.7s	165	step 1250/9966 | loss: 1.7208 | lr: 9.76e-05 | tok/s: 493
+15234.1s	166	step 1260/9966 | loss: 0.3732 | lr: 9.76e-05 | tok/s: 493
+15377.0s	167	step 1270/9966 | loss: 2.0254 | lr: 9.75e-05 | tok/s: 493
+15519.1s	168	step 1280/9966 | loss: 0.1655 | lr: 9.75e-05 | tok/s: 492
+15650.8s	169	step 1290/9966 | loss: 1.6801 | lr: 9.74e-05 | tok/s: 492
+15790.6s	170	step 1300/9966 | loss: 1.0076 | lr: 9.74e-05 | tok/s: 491
+15910.1s	171	step 1310/9966 | loss: 0.9979 | lr: 9.73e-05 | tok/s: 491
+16028.4s	172	step 1320/9966 | loss: 0.3874 | lr: 9.73e-05 | tok/s: 490
+16160.8s	173	step 1330/9966 | loss: 0.1723 | lr: 9.72e-05 | tok/s: 490
+16293.5s	174	step 1340/9966 | loss: 0.3359 | lr: 9.72e-05 | tok/s: 490
+16411.6s	175	step 1350/9966 | loss: 1.9231 | lr: 9.71e-05 | tok/s: 489
+16532.3s	176	step 1360/9966 | loss: 2.3275 | lr: 9.71e-05 | tok/s: 489
+16651.5s	177	step 1370/9966 | loss: 2.2007 | lr: 9.70e-05 | tok/s: 489
+16771.0s	178	step 1380/9966 | loss: 0.1386 | lr: 9.70e-05 | tok/s: 488
+16901.1s	179	step 1390/9966 | loss: 1.3024 | lr: 9.69e-05 | tok/s: 488
+17043.6s	180	step 1400/9966 | loss: 1.1322 | lr: 9.68e-05 | tok/s: 487
+17172.8s	181	step 1410/9966 | loss: 0.8651 | lr: 9.68e-05 | tok/s: 486
+17316.0s	182	step 1420/9966 | loss: 1.2243 | lr: 9.67e-05 | tok/s: 486
+17471.4s	183	step 1430/9966 | loss: 0.6353 | lr: 9.67e-05 | tok/s: 486
+17602.9s	184	step 1440/9966 | loss: 0.8660 | lr: 9.66e-05 | tok/s: 485
+17734.1s	185	step 1450/9966 | loss: 0.7613 | lr: 9.66e-05 | tok/s: 484
+17852.2s	186	step 1460/9966 | loss: 1.5256 | lr: 9.65e-05 | tok/s: 484
+17983.0s	187	step 1470/9966 | loss: 0.5693 | lr: 9.64e-05 | tok/s: 483
+18125.7s	188	step 1480/9966 | loss: 2.0745 | lr: 9.64e-05 | tok/s: 483
+18244.4s	189	step 1490/9966 | loss: 1.0618 | lr: 9.63e-05 | tok/s: 482
+18370.5s	190	step 1500/9966 | loss: 0.1557 | lr: 9.63e-05 | tok/s: 482
+18374.3s	191	saved /kaggle/working/checkpoints/titan_symphony_step1500.pt (2117.3 MB, loss=0.1557)
+18504.6s	192	step 1510/9966 | loss: 0.1494 | lr: 9.62e-05 | tok/s: 481
+18649.2s	193	step 1520/9966 | loss: 0.3387 | lr: 9.61e-05 | tok/s: 481
+18775.4s	194	step 1530/9966 | loss: 0.4540 | lr: 9.61e-05 | tok/s: 481
+18905.6s	195	step 1540/9966 | loss: 0.4014 | lr: 9.60e-05 | tok/s: 480
+19035.5s	196	step 1550/9966 | loss: 1.3481 | lr: 9.59e-05 | tok/s: 480
+19174.9s	197	step 1560/9966 | loss: 1.9535 | lr: 9.59e-05 | tok/s: 479
+19328.3s	198	step 1570/9966 | loss: 0.2701 | lr: 9.58e-05 | tok/s: 479
+19457.5s	199	step 1580/9966 | loss: 0.2148 | lr: 9.57e-05 | tok/s: 479
+19588.5s	200	step 1590/9966 | loss: 0.2308 | lr: 9.57e-05 | tok/s: 478
+19718.4s	201	step 1600/9966 | loss: 0.8973 | lr: 9.56e-05 | tok/s: 478
+19835.8s	202	step 1610/9966 | loss: 0.1674 | lr: 9.55e-05 | tok/s: 477
+19992.0s	203	step 1620/9966 | loss: 0.1353 | lr: 9.55e-05 | tok/s: 477
+20122.6s	204	step 1630/9966 | loss: 0.6092 | lr: 9.54e-05 | tok/s: 476
+20263.9s	205	step 1640/9966 | loss: 0.7542 | lr: 9.53e-05 | tok/s: 476
+20396.0s	206	step 1650/9966 | loss: 0.8448 | lr: 9.53e-05 | tok/s: 475
+20518.2s	207	step 1660/9966 | loss: 0.3488 | lr: 9.52e-05 | tok/s: 475
+20661.3s	208	step 1670/9966 | loss: 0.2811 | lr: 9.51e-05 | tok/s: 474
+20804.3s	209	step 1680/9966 | loss: 2.2849 | lr: 9.51e-05 | tok/s: 474
+20948.8s	210	step 1690/9966 | loss: 1.5267 | lr: 9.50e-05 | tok/s: 473
+21102.3s	211	step 1700/9966 | loss: 0.3260 | lr: 9.49e-05 | tok/s: 472
+21234.6s	212	step 1710/9966 | loss: 1.6534 | lr: 9.48e-05 | tok/s: 472
+21366.8s	213	step 1720/9966 | loss: 1.3623 | lr: 9.48e-05 | tok/s: 471
+21497.3s	214	step 1730/9966 | loss: 1.2420 | lr: 9.47e-05 | tok/s: 471
+21639.7s	215	step 1740/9966 | loss: 0.5653 | lr: 9.46e-05 | tok/s: 470
+21783.1s	216	step 1750/9966 | loss: 1.8992 | lr: 9.46e-05 | tok/s: 470
+21939.1s	217	step 1760/9966 | loss: 0.6574 | lr: 9.45e-05 | tok/s: 469
+22094.8s	218	step 1770/9966 | loss: 0.9088 | lr: 9.44e-05 | tok/s: 468
+22226.2s	219	step 1780/9966 | loss: 0.3378 | lr: 9.43e-05 | tok/s: 467
+22380.8s	220	step 1790/9966 | loss: 0.1522 | lr: 9.43e-05 | tok/s: 467
+22549.7s	221	step 1800/9966 | loss: 0.0816 | lr: 9.42e-05 | tok/s: 466
+22682.3s	222	step 1810/9966 | loss: 0.3356 | lr: 9.41e-05 | tok/s: 466
+22860.9s	223	step 1820/9966 | loss: 1.8258 | lr: 9.40e-05 | tok/s: 465
+23006.4s	224	step 1830/9966 | loss: 0.6110 | lr: 9.40e-05 | tok/s: 464
+23136.1s	225	step 1840/9966 | loss: 0.1762 | lr: 9.39e-05 | tok/s: 464
+23268.2s	226	step 1850/9966 | loss: 1.6516 | lr: 9.38e-05 | tok/s: 463
+23436.3s	227	step 1860/9966 | loss: 0.3710 | lr: 9.37e-05 | tok/s: 463
+23558.0s	228	step 1870/9966 | loss: 0.1393 | lr: 9.36e-05 | tok/s: 462
+23727.0s	229	step 1880/9966 | loss: 0.1534 | lr: 9.36e-05 | tok/s: 462
+23904.7s	230	step 1890/9966 | loss: 2.3021 | lr: 9.35e-05 | tok/s: 461
+24037.2s	231	step 1900/9966 | loss: 0.4971 | lr: 9.34e-05 | tok/s: 461
+24155.2s	232	step 1910/9966 | loss: 0.3113 | lr: 9.33e-05 | tok/s: 460
+24297.7s	233	step 1920/9966 | loss: 0.5225 | lr: 9.32e-05 | tok/s: 459
+24442.8s	234	step 1930/9966 | loss: 1.9046 | lr: 9.32e-05 | tok/s: 459
+24563.3s	235	step 1940/9966 | loss: 1.0092 | lr: 9.31e-05 | tok/s: 458
+24717.6s	236	step 1950/9966 | loss: 0.4436 | lr: 9.30e-05 | tok/s: 458
+24885.1s	237	step 1960/9966 | loss: 0.3848 | lr: 9.29e-05 | tok/s: 457
+25055.8s	238	step 1970/9966 | loss: 0.0809 | lr: 9.28e-05 | tok/s: 457
+25197.7s	239	step 1980/9966 | loss: 0.3293 | lr: 9.27e-05 | tok/s: 456
+25317.0s	240	step 1990/9966 | loss: 0.4196 | lr: 9.27e-05 | tok/s: 456
+25448.6s	241	step 2000/9966 | loss: 0.1581 | lr: 9.26e-05 | tok/s: 455
+25452.4s	242	saved /kaggle/working/checkpoints/titan_symphony_step2000.pt (2117.3 MB, loss=0.1581)
+25582.8s	243	step 2010/9966 | loss: 0.8679 | lr: 9.25e-05 | tok/s: 455
+25740.9s	244	step 2020/9966 | loss: 0.3406 | lr: 9.24e-05 | tok/s: 454
+25872.1s	245	step 2030/9966 | loss: 1.4720 | lr: 9.23e-05 | tok/s: 454
+26013.5s	246	step 2040/9966 | loss: 0.1254 | lr: 9.22e-05 | tok/s: 454
+26180.2s	247	step 2050/9966 | loss: 0.4359 | lr: 9.21e-05 | tok/s: 453
+26324.5s	248	step 2060/9966 | loss: 1.8651 | lr: 9.20e-05 | tok/s: 453
+26503.9s	249	step 2070/9966 | loss: 0.2502 | lr: 9.20e-05 | tok/s: 452
+26659.4s	250	step 2080/9966 | loss: 1.0328 | lr: 9.19e-05 | tok/s: 452
+26851.4s	251	step 2090/9966 | loss: 1.3497 | lr: 9.18e-05 | tok/s: 451
+27007.9s	252	step 2100/9966 | loss: 0.6243 | lr: 9.17e-05 | tok/s: 450
+27148.7s	253	step 2110/9966 | loss: 1.2904 | lr: 9.16e-05 | tok/s: 450
+27279.9s	254	step 2120/9966 | loss: 0.1113 | lr: 9.15e-05 | tok/s: 449
+27410.6s	255	step 2130/9966 | loss: 1.1408 | lr: 9.14e-05 | tok/s: 449
+27543.1s	256	step 2140/9966 | loss: 0.3791 | lr: 9.13e-05 | tok/s: 449
+27683.2s	257	step 2150/9966 | loss: 0.7383 | lr: 9.12e-05 | tok/s: 448
+27839.4s	258	step 2160/9966 | loss: 0.7631 | lr: 9.11e-05 | tok/s: 448
+27971.7s	259	step 2170/9966 | loss: 0.9888 | lr: 9.11e-05 | tok/s: 447
+28160.6s	260	step 2180/9966 | loss: 0.3554 | lr: 9.10e-05 | tok/s: 447
+28292.4s	261	step 2190/9966 | loss: 1.0599 | lr: 9.09e-05 | tok/s: 446
+28433.3s	262	step 2200/9966 | loss: 0.6896 | lr: 9.08e-05 | tok/s: 446
+28554.2s	263	step 2210/9966 | loss: 0.8640 | lr: 9.07e-05 | tok/s: 446
+28687.1s	264	step 2220/9966 | loss: 1.3125 | lr: 9.06e-05 | tok/s: 445
+28831.3s	265	step 2230/9966 | loss: 1.1214 | lr: 9.05e-05 | tok/s: 445
+28979.4s	266	step 2240/9966 | loss: 0.9990 | lr: 9.04e-05 | tok/s: 445
+29118.9s	267	step 2250/9966 | loss: 0.0942 | lr: 9.03e-05 | tok/s: 444
+29233.7s	268	step 2260/9966 | loss: 0.1660 | lr: 9.02e-05 | tok/s: 444
+29388.0s	269	step 2270/9966 | loss: 0.8886 | lr: 9.01e-05 | tok/s: 443
+29532.2s	270	step 2280/9966 | loss: 0.5915 | lr: 9.00e-05 | tok/s: 443
+29688.4s	271	step 2290/9966 | loss: 0.3941 | lr: 8.99e-05 | tok/s: 443
+29821.1s	272	step 2300/9966 | loss: 0.2107 | lr: 8.98e-05 | tok/s: 443
+29941.1s	273	step 2310/9966 | loss: 1.8612 | lr: 8.97e-05 | tok/s: 442
+30073.6s	274	step 2320/9966 | loss: 0.3524 | lr: 8.96e-05 | tok/s: 442
+30241.1s	275	step 2330/9966 | loss: 0.4629 | lr: 8.95e-05 | tok/s: 441
+30380.5s	276	step 2340/9966 | loss: 1.9345 | lr: 8.94e-05 | tok/s: 441
+30512.6s	277	step 2350/9966 | loss: 0.1609 | lr: 8.93e-05 | tok/s: 441
+30656.9s	278	step 2360/9966 | loss: 0.4833 | lr: 8.92e-05 | tok/s: 440
+30825.1s	279	step 2370/9966 | loss: 0.0755 | lr: 8.91e-05 | tok/s: 440
+30968.2s	280	step 2380/9966 | loss: 0.6842 | lr: 8.90e-05 | tok/s: 440
+31099.5s	281	step 2390/9966 | loss: 0.3860 | lr: 8.89e-05 | tok/s: 439
+31220.8s	282	step 2400/9966 | loss: 0.4278 | lr: 8.88e-05 | tok/s: 439
+31361.8s	283	step 2410/9966 | loss: 0.3310 | lr: 8.87e-05 | tok/s: 439
+31491.8s	284	step 2420/9966 | loss: 0.5715 | lr: 8.86e-05 | tok/s: 438
+31637.1s	285	step 2430/9966 | loss: 0.2081 | lr: 8.85e-05 | tok/s: 438
+31836.7s	286	step 2440/9966 | loss: 0.7262 | lr: 8.84e-05 | tok/s: 437
+31992.3s	287	step 2450/9966 | loss: 0.2937 | lr: 8.83e-05 | tok/s: 437
+32183.9s	288	step 2460/9966 | loss: 0.3219 | lr: 8.82e-05 | tok/s: 436
+32327.2s	289	step 2470/9966 | loss: 0.3553 | lr: 8.81e-05 | tok/s: 436
+32458.7s	290	step 2480/9966 | loss: 0.3077 | lr: 8.80e-05 | tok/s: 436
+32592.8s	291	step 2490/9966 | loss: 0.1632 | lr: 8.79e-05 | tok/s: 435
+32737.4s	292	step 2500/9966 | loss: 0.8484 | lr: 8.78e-05 | tok/s: 435
+32741.3s	293	saved /kaggle/working/checkpoints/titan_symphony_step2500.pt (2117.3 MB, loss=0.8484)
+32911.1s	294	step 2510/9966 | loss: 0.8208 | lr: 8.77e-05 | tok/s: 435
+33053.6s	295	step 2520/9966 | loss: 1.4731 | lr: 8.76e-05 | tok/s: 434
+33186.5s	296	step 2530/9966 | loss: 0.0650 | lr: 8.74e-05 | tok/s: 434
+33350.1s	297	step 2540/9966 | loss: 0.6884 | lr: 8.73e-05 | tok/s: 434
+33481.7s	298	step 2550/9966 | loss: 0.0983 | lr: 8.72e-05 | tok/s: 433
+33600.9s	299	step 2560/9966 | loss: 0.2571 | lr: 8.71e-05 | tok/s: 433
+33767.1s	300	step 2570/9966 | loss: 0.8227 | lr: 8.70e-05 | tok/s: 433
+33886.8s	301	step 2580/9966 | loss: 0.8366 | lr: 8.69e-05 | tok/s: 433
+34056.0s	302	step 2590/9966 | loss: 0.3833 | lr: 8.68e-05 | tok/s: 432
+34212.2s	303	step 2600/9966 | loss: 0.7645 | lr: 8.67e-05 | tok/s: 432
+34356.7s	304	step 2610/9966 | loss: 0.2430 | lr: 8.66e-05 | tok/s: 432
+34478.8s	305	step 2620/9966 | loss: 0.0647 | lr: 8.65e-05 | tok/s: 432
+34681.2s	306	step 2630/9966 | loss: 0.2449 | lr: 8.63e-05 | tok/s: 431
+34836.4s	307	step 2640/9966 | loss: 0.6270 | lr: 8.62e-05 | tok/s: 431
+35002.5s	308	step 2650/9966 | loss: 2.2977 | lr: 8.61e-05 | tok/s: 430
+35132.9s	309	step 2660/9966 | loss: 0.2446 | lr: 8.60e-05 | tok/s: 430
+35264.8s	310	step 2670/9966 | loss: 0.1183 | lr: 8.59e-05 | tok/s: 430
+35398.0s	311	step 2680/9966 | loss: 0.2128 | lr: 8.58e-05 | tok/s: 430
+35539.6s	312	step 2690/9966 | loss: 0.0858 | lr: 8.57e-05 | tok/s: 429
+35670.3s	313	step 2700/9966 | loss: 0.2109 | lr: 8.56e-05 | tok/s: 429
+35812.5s	314	step 2710/9966 | loss: 0.4963 | lr: 8.54e-05 | tok/s: 429
+35942.7s	315	step 2720/9966 | loss: 0.3525 | lr: 8.53e-05 | tok/s: 428
+36123.3s	316	step 2730/9966 | loss: 0.2448 | lr: 8.52e-05 | tok/s: 428
+36275.6s	317	step 2740/9966 | loss: 1.3421 | lr: 8.51e-05 | tok/s: 428
+36404.9s	318	step 2750/9966 | loss: 1.0875 | lr: 8.50e-05 | tok/s: 427
+36560.1s	319	step 2760/9966 | loss: 1.4017 | lr: 8.49e-05 | tok/s: 427
+36737.8s	320	step 2770/9966 | loss: 0.0928 | lr: 8.47e-05 | tok/s: 426
+36904.8s	321	step 2780/9966 | loss: 0.8923 | lr: 8.46e-05 | tok/s: 426
+37080.9s	322	step 2790/9966 | loss: 0.5260 | lr: 8.45e-05 | tok/s: 426
+37225.5s	323	step 2800/9966 | loss: 0.4680 | lr: 8.44e-05 | tok/s: 425
+37370.3s	324	step 2810/9966 | loss: 0.4696 | lr: 8.43e-05 | tok/s: 425
+37547.8s	325	step 2820/9966 | loss: 0.7477 | lr: 8.42e-05 | tok/s: 425
+37667.9s	326	step 2830/9966 | loss: 1.8122 | lr: 8.40e-05 | tok/s: 424
+37823.0s	327	step 2840/9966 | loss: 0.3977 | lr: 8.39e-05 | tok/s: 424
+38022.5s	328	step 2850/9966 | loss: 0.3798 | lr: 8.38e-05 | tok/s: 423
+38153.6s	329	step 2860/9966 | loss: 1.2209 | lr: 8.37e-05 | tok/s: 423
+38295.6s	330	step 2870/9966 | loss: 0.1872 | lr: 8.36e-05 | tok/s: 423
+38415.2s	331	step 2880/9966 | loss: 0.4163 | lr: 8.34e-05 | tok/s: 423
+38559.1s	332	step 2890/9966 | loss: 0.0747 | lr: 8.33e-05 | tok/s: 422
+38691.7s	333	step 2900/9966 | loss: 1.1986 | lr: 8.32e-05 | tok/s: 422
+38850.4s	334	step 2910/9966 | loss: 0.4717 | lr: 8.31e-05 | tok/s: 422
+39003.8s	335	step 2920/9966 | loss: 0.8923 | lr: 8.30e-05 | tok/s: 422
+39136.0s	336	step 2930/9966 | loss: 0.2077 | lr: 8.28e-05 | tok/s: 422
+39347.0s	337	step 2940/9966 | loss: 1.7829 | lr: 8.27e-05 | tok/s: 421
+39478.4s	338	step 2950/9966 | loss: 0.1483 | lr: 8.26e-05 | tok/s: 421
+39657.4s	339	step 2960/9966 | loss: 0.2667 | lr: 8.25e-05 | tok/s: 420
+39798.2s	340	step 2970/9966 | loss: 1.4335 | lr: 8.23e-05 | tok/s: 420
+39940.8s	341	step 2980/9966 | loss: 1.3634 | lr: 8.22e-05 | tok/s: 420
+40095.0s	342	step 2990/9966 | loss: 0.3162 | lr: 8.21e-05 | tok/s: 420
+40237.0s	343	step 3000/9966 | loss: 0.0861 | lr: 8.20e-05 | tok/s: 419
+40240.9s	344	saved /kaggle/working/checkpoints/titan_symphony_step3000.pt (2117.3 MB, loss=0.0861)
+40430.9s	345	step 3010/9966 | loss: 0.9086 | lr: 8.18e-05 | tok/s: 419
+40562.6s	346	step 3020/9966 | loss: 0.7266 | lr: 8.17e-05 | tok/s: 419
+40703.5s	347	step 3030/9966 | loss: 0.4006 | lr: 8.16e-05 | tok/s: 418
+40916.9s	348	step 3040/9966 | loss: 0.2197 | lr: 8.15e-05 | tok/s: 418
+41057.6s	349	step 3050/9966 | loss: 0.5413 | lr: 8.13e-05 | tok/s: 418
+41177.5s	350	step 3060/9966 | loss: 0.2824 | lr: 8.12e-05 | tok/s: 418
+41320.9s	351	step 3070/9966 | loss: 0.5215 | lr: 8.11e-05 | tok/s: 417
+41499.6s	352	step 3080/9966 | loss: 0.0776 | lr: 8.10e-05 | tok/s: 417
+41620.2s	353	step 3090/9966 | loss: 0.5699 | lr: 8.08e-05 | tok/s: 417
+41739.4s	354	step 3100/9966 | loss: 0.1857 | lr: 8.07e-05 | tok/s: 417
+41868.9s	355	step 3110/9966 | loss: 1.7063 | lr: 8.06e-05 | tok/s: 416
+42001.8s	356	step 3120/9966 | loss: 0.8780 | lr: 8.04e-05 | tok/s: 416
+42145.7s	357	step 3130/9966 | loss: 0.0513 | lr: 8.03e-05 | tok/s: 416
+42301.0s	358	step 3140/9966 | loss: 0.1386 | lr: 8.02e-05 | tok/s: 416
+42432.4s	359	step 3150/9966 | loss: 0.7633 | lr: 8.01e-05 | tok/s: 415
+42622.1s	360	step 3160/9966 | loss: 0.2770 | lr: 7.99e-05 | tok/s: 415
+42754.1s	361	step 3170/9966 | loss: 1.7365 | lr: 7.98e-05 | tok/s: 415
+42884.0s	362	step 3180/9966 | loss: 0.3366 | lr: 7.97e-05 | tok/s: 415
+43041.3s	363	step 3190/9966 | loss: 0.7006 | lr: 7.95e-05 | tok/s: 414
+43182.7s	364	step 3200/9966 | loss: 0.0704 | lr: 7.94e-05 | tok/s: 414
+43207.9s	365	Timeout waiting for execute reply (43200s).
+43211.5s	366	Traceback (most recent call last):
+
+
+after that i run as epoch 1  so i resume that checkpoint and here is logs: 
+
+8.0s	0	0.00s - Debugger warning: It seems that frozen modules are being used, which may
+8.0s	1	0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+8.0s	2	0.00s - to python to disable frozen modules.
+8.0s	3	0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+8.6s	4	0.00s - Debugger warning: It seems that frozen modules are being used, which may
+8.6s	5	0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+8.6s	6	0.00s - to python to disable frozen modules.
+8.6s	7	0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+36.2s	8	`torch_dtype` is deprecated! Use `dtype` instead!
+36.2s	9	
+36.2s	10	`torch_dtype` is deprecated! Use `dtype` instead!
+165.5s	11	`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+165.5s	12	
+165.5s	13	`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+35.8s	14	model: /kaggle/input/models/qwen-lm/qwen2.5/transformers/1.5b-instruct/1
+35.8s	15	data: /kaggle/input/datasets/tsfmaster/142mb-universal-datasets/universal_titan_reasoning.jsonl
+35.8s	16	device: cuda, dtype: torch.float16
+35.8s	17	hidden: 1536, mlp: 8960
+35.8s	18	batch: 1 x 16 = 16
+35.8s	19	lr: 0.0001, grad_ckpt: True
+35.8s	20	
+35.8s	21	--- phase 1: load and freeze ---
+35.8s	22	loading tokenizer from /kaggle/input/models/qwen-lm/qwen2.5/transformers/1.5b-instruct/1
+36.4s	23	loading model in torch.float16
+45.0s	24	frozen 338/338 params
+45.0s	25	capturing mlp norms
+45.0s	26	loaded 50 calibration samples
+50.4s	27	phase 1 done
+50.4s	28	
+50.4s	29	--- phase 2: inject memory layers ---
+50.4s	30	replacing 28 mlps
+57.4s	31	phase 2 done, trainable: 528,611,412
+57.4s	32	gradient checkpointing on
+57.4s	33	loading data from /kaggle/input/datasets/tsfmaster/142mb-universal-datasets/universal_titan_reasoning.jsonl
+61.3s	34	loaded 79738 samples
+61.3s	35	
+61.3s	36	starting training, 4983 steps total
+61.3s	37	resuming from /kaggle/input/notebooks/tsfmaster/notebook232e1f1846/checkpoints/titan_symphony_step3000.pt
+73.1s	38	optimizer restored
+73.1s	39	resumed at step 3000, epoch 0, loss 0.0861
+73.1s	40	fast-forwarding 48000 micro-steps
+343.0s	41	step 3010/4983 | loss: 0.2448 | lr: 3.78e-05 | tok/s: 246
+493.5s	42	step 3020/4983 | loss: 1.3419 | lr: 3.75e-05 | tok/s: 270
+621.1s	43	step 3030/4983 | loss: 0.0657 | lr: 3.71e-05 | tok/s: 288
+774.8s	44	step 3040/4983 | loss: 1.4016 | lr: 3.68e-05 | tok/s: 301
+952.1s	45	step 3050/4983 | loss: 0.0927 | lr: 3.65e-05 | tok/s: 303
+1117.0s	46	step 3060/4983 | loss: 0.8923 | lr: 3.62e-05 | tok/s: 310
+1291.0s	47	step 3070/4983 | loss: 0.5260 | lr: 3.59e-05 | tok/s: 316
+1434.6s	48	step 3080/4983 | loss: 0.4680 | lr: 3.55e-05 | tok/s: 317
+1576.4s	49	step 3090/4983 | loss: 0.4696 | lr: 3.52e-05 | tok/s: 321
+1751.2s	50	step 3100/4983 | loss: 0.7476 | lr: 3.49e-05 | tok/s: 325
+1868.8s	51	step 3110/4983 | loss: 1.8118 | lr: 3.46e-05 | tok/s: 329
+2020.5s	52	step 3120/4983 | loss: 0.3976 | lr: 3.43e-05 | tok/s: 331
+2216.5s	53	step 3130/4983 | loss: 0.3798 | lr: 3.39e-05 | tok/s: 329
+2344.8s	54	step 3140/4983 | loss: 1.2208 | lr: 3.36e-05 | tok/s: 332
+2461.1s	55	step 3150/4983 | loss: 0.2196 | lr: 3.33e-05 | tok/s: 332
+2589.5s	56	step 3160/4983 | loss: 0.7308 | lr: 3.30e-05 | tok/s: 334
+2730.6s	57	step 3170/4983 | loss: 1.1146 | lr: 3.27e-05 | tok/s: 335
+2860.4s	58	step 3180/4983 | loss: 0.7043 | lr: 3.24e-05 | tok/s: 337
+3004.6s	59	step 3190/4983 | loss: 0.6502 | lr: 3.20e-05 | tok/s: 339
+3143.6s	60	step 3200/4983 | loss: 0.5979 | lr: 3.17e-05 | tok/s: 341
+3296.8s	61	step 3210/4983 | loss: 0.5697 | lr: 3.14e-05 | tok/s: 341
+3503.0s	62	step 3220/4983 | loss: 0.3381 | lr: 3.11e-05 | tok/s: 342
+3632.4s	63	step 3230/4983 | loss: 0.2388 | lr: 3.08e-05 | tok/s: 343
+3809.1s	64	step 3240/4983 | loss: 0.5018 | lr: 3.05e-05 | tok/s: 343
+3936.7s	65	step 3250/4983 | loss: 0.5743 | lr: 3.02e-05 | tok/s: 343
+4063.9s	66	step 3260/4983 | loss: 0.3051 | lr: 2.99e-05 | tok/s: 343
+4191.0s	67	step 3270/4983 | loss: 0.6189 | lr: 2.96e-05 | tok/s: 344
+4365.7s	68	step 3280/4983 | loss: 0.1443 | lr: 2.93e-05 | tok/s: 345
+4528.3s	69	step 3290/4983 | loss: 1.5067 | lr: 2.90e-05 | tok/s: 346
+4659.7s	70	step 3300/4983 | loss: 0.5353 | lr: 2.87e-05 | tok/s: 347
+4800.2s	71	step 3310/4983 | loss: 0.0563 | lr: 2.84e-05 | tok/s: 347
+4962.7s	72	step 3320/4983 | loss: 1.2048 | lr: 2.80e-05 | tok/s: 347
+5159.9s	73	step 3330/4983 | loss: 1.5647 | lr: 2.77e-05 | tok/s: 348
+5276.1s	74	step 3340/4983 | loss: 1.1417 | lr: 2.74e-05 | tok/s: 348
+5419.1s	75	step 3350/4983 | loss: 0.3329 | lr: 2.71e-05 | tok/s: 347
+5571.2s	76	step 3360/4983 | loss: 0.1461 | lr: 2.69e-05 | tok/s: 348
+5712.6s	77	step 3370/4983 | loss: 1.0665 | lr: 2.66e-05 | tok/s: 348
+5830.2s	78	step 3380/4983 | loss: 0.0857 | lr: 2.63e-05 | tok/s: 349
+5947.0s	79	step 3390/4983 | loss: 0.0984 | lr: 2.60e-05 | tok/s: 349
+6076.5s	80	step 3400/4983 | loss: 0.6613 | lr: 2.57e-05 | tok/s: 350
+6207.7s	81	step 3410/4983 | loss: 0.3376 | lr: 2.54e-05 | tok/s: 351
+6359.8s	82	step 3420/4983 | loss: 0.1300 | lr: 2.51e-05 | tok/s: 350
+6502.1s	83	step 3430/4983 | loss: 0.7902 | lr: 2.48e-05 | tok/s: 350
+6652.7s	84	step 3440/4983 | loss: 0.4694 | lr: 2.45e-05 | tok/s: 350
+6817.2s	85	step 3450/4983 | loss: 0.6878 | lr: 2.42e-05 | tok/s: 350
+6935.5s	86	step 3460/4983 | loss: 0.5634 | lr: 2.39e-05 | tok/s: 350
+7075.1s	87	step 3470/4983 | loss: 0.6073 | lr: 2.36e-05 | tok/s: 350
+7216.3s	88	step 3480/4983 | loss: 0.5747 | lr: 2.34e-05 | tok/s: 351
+7391.6s	89	step 3490/4983 | loss: 0.9639 | lr: 2.31e-05 | tok/s: 351
+7534.1s	90	step 3500/4983 | loss: 1.1000 | lr: 2.28e-05 | tok/s: 352
+7537.7s	91	saved /kaggle/working/checkpoints/titan_symphony_step3500.pt (2117.3 MB, loss=1.1000)
+7689.4s	92	step 3510/4983 | loss: 0.0774 | lr: 2.25e-05 | tok/s: 351
+7831.5s	93	step 3520/4983 | loss: 0.9625 | lr: 2.22e-05 | tok/s: 352
+7961.9s	94	step 3530/4983 | loss: 0.5521 | lr: 2.20e-05 | tok/s: 352
+8126.0s	95	step 3540/4983 | loss: 0.1986 | lr: 2.17e-05 | tok/s: 352
+8254.2s	96	step 3550/4983 | loss: 1.1778 | lr: 2.14e-05 | tok/s: 352
+8371.4s	97	step 3560/4983 | loss: 0.1137 | lr: 2.11e-05 | tok/s: 352
+8489.6s	98	step 3570/4983 | loss: 0.0751 | lr: 2.09e-05 | tok/s: 352
+8631.6s	99	step 3580/4983 | loss: 1.7782 | lr: 2.06e-05 | tok/s: 352
+8761.8s	100	step 3590/4983 | loss: 0.3809 | lr: 2.03e-05 | tok/s: 352
+8904.0s	101	step 3600/4983 | loss: 0.5309 | lr: 2.00e-05 | tok/s: 353
+9044.1s	102	step 3610/4983 | loss: 0.1421 | lr: 1.98e-05 | tok/s: 353
+9173.5s	103	step 3620/4983 | loss: 0.0638 | lr: 1.95e-05 | tok/s: 353
+9301.3s	104	step 3630/4983 | loss: 1.9058 | lr: 1.92e-05 | tok/s: 353
+9453.9s	105	step 3640/4983 | loss: 0.7620 | lr: 1.90e-05 | tok/s: 353
+9597.2s	106	step 3650/4983 | loss: 0.0714 | lr: 1.87e-05 | tok/s: 353
+9773.9s	107	step 3660/4983 | loss: 0.5808 | lr: 1.85e-05 | tok/s: 353
+9970.3s	108	step 3670/4983 | loss: 1.1122 | lr: 1.82e-05 | tok/s: 353
+10089.4s	109	step 3680/4983 | loss: 1.4845 | lr: 1.79e-05 | tok/s: 353
+10234.7s	110	step 3690/4983 | loss: 0.4439 | lr: 1.77e-05 | tok/s: 353
+10375.9s	111	step 3700/4983 | loss: 0.4032 | lr: 1.74e-05 | tok/s: 353
+10492.4s	112	step 3710/4983 | loss: 2.1936 | lr: 1.72e-05 | tok/s: 353
+10677.9s	113	step 3720/4983 | loss: 1.8413 | lr: 1.69e-05 | tok/s: 353
+10844.1s	114	step 3730/4983 | loss: 0.7801 | lr: 1.67e-05 | tok/s: 353
+10983.6s	115	step 3740/4983 | loss: 0.5329 | lr: 1.64e-05 | tok/s: 353
+11125.4s	116	step 3750/4983 | loss: 0.3518 | lr: 1.62e-05 | tok/s: 353
+11256.9s	117	step 3760/4983 | loss: 1.9412 | lr: 1.59e-05 | tok/s: 354
+11400.4s	118	step 3770/4983 | loss: 0.1543 | lr: 1.57e-05 | tok/s: 353
+11529.3s	119	step 3780/4983 | loss: 1.9008 | lr: 1.54e-05 | tok/s: 353
+11660.6s	120	step 3790/4983 | loss: 1.3739 | lr: 1.52e-05 | tok/s: 353
+11837.9s	121	step 3800/4983 | loss: 0.3196 | lr: 1.50e-05 | tok/s: 353
+11990.9s	122	step 3810/4983 | loss: 1.1338 | lr: 1.47e-05 | tok/s: 353
+12165.6s	123	step 3820/4983 | loss: 0.2985 | lr: 1.45e-05 | tok/s: 353
+12308.1s	124	step 3830/4983 | loss: 0.1488 | lr: 1.42e-05 | tok/s: 353
+12460.1s	125	step 3840/4983 | loss: 0.7542 | lr: 1.40e-05 | tok/s: 353
+12600.4s	126	step 3850/4983 | loss: 1.0036 | lr: 1.38e-05 | tok/s: 353
+12753.9s	127	step 3860/4983 | loss: 1.1470 | lr: 1.36e-05 | tok/s: 353
+12894.7s	128	step 3870/4983 | loss: 0.3081 | lr: 1.33e-05 | tok/s: 353
+13080.9s	129	step 3880/4983 | loss: 0.5109 | lr: 1.31e-05 | tok/s: 353
+13223.3s	130	step 3890/4983 | loss: 0.4902 | lr: 1.29e-05 | tok/s: 353
+13364.9s	131	step 3900/4983 | loss: 0.7416 | lr: 1.26e-05 | tok/s: 353
+13493.8s	132	step 3910/4983 | loss: 1.3142 | lr: 1.24e-05 | tok/s: 353
+13622.9s	133	step 3920/4983 | loss: 0.3836 | lr: 1.22e-05 | tok/s: 353
+13811.6s	134	step 3930/4983 | loss: 0.4762 | lr: 1.20e-05 | tok/s: 353
+13950.5s	135	step 3940/4983 | loss: 0.8354 | lr: 1.18e-05 | tok/s: 353
+14090.0s	136	step 3950/4983 | loss: 0.3562 | lr: 1.16e-05 | tok/s: 352
+14231.9s	137	step 3960/4983 | loss: 0.5549 | lr: 1.13e-05 | tok/s: 352
+14417.9s	138	step 3970/4983 | loss: 0.2670 | lr: 1.11e-05 | tok/s: 352
+14604.6s	139	step 3980/4983 | loss: 0.1353 | lr: 1.09e-05 | tok/s: 352
+14757.4s	140	step 3990/4983 | loss: 1.6524 | lr: 1.07e-05 | tok/s: 353
+14888.6s	141	step 4000/4983 | loss: 0.2604 | lr: 1.05e-05 | tok/s: 353
+14892.4s	142	saved /kaggle/working/checkpoints/titan_symphony_step4000.pt (2117.3 MB, loss=0.2604)
+15047.8s	143	step 4010/4983 | loss: 0.7966 | lr: 1.03e-05 | tok/s: 353
+15189.7s	144	step 4020/4983 | loss: 0.2959 | lr: 1.01e-05 | tok/s: 353
+15320.6s	145	step 4030/4983 | loss: 0.4210 | lr: 9.89e-06 | tok/s: 353
+15483.7s	146	step 4040/4983 | loss: 1.0595 | lr: 9.70e-06 | tok/s: 353
+15661.8s	147	step 4050/4983 | loss: 0.4642 | lr: 9.50e-06 | tok/s: 353
+15789.8s	148	step 4060/4983 | loss: 1.4321 | lr: 9.30e-06 | tok/s: 354
+15908.2s	149	step 4070/4983 | loss: 0.3955 | lr: 9.11e-06 | tok/s: 354
+16061.0s	150	step 4080/4983 | loss: 0.4403 | lr: 8.92e-06 | tok/s: 354
+16213.1s	151	step 4090/4983 | loss: 0.2309 | lr: 8.73e-06 | tok/s: 354
+16341.0s	152	step 4100/4983 | loss: 0.5879 | lr: 8.54e-06 | tok/s: 354
+16492.5s	153	step 4110/4983 | loss: 0.2666 | lr: 8.35e-06 | tok/s: 353
+16622.8s	154	step 4120/4983 | loss: 0.7167 | lr: 8.17e-06 | tok/s: 354
+16751.1s	155	step 4130/4983 | loss: 0.4466 | lr: 7.98e-06 | tok/s: 354
+16890.5s	156	step 4140/4983 | loss: 0.1496 | lr: 7.80e-06 | tok/s: 354
+17066.9s	157	step 4150/4983 | loss: 0.1272 | lr: 7.62e-06 | tok/s: 354
+17205.7s	158	step 4160/4983 | loss: 1.0557 | lr: 7.45e-06 | tok/s: 354
+17347.8s	159	step 4170/4983 | loss: 0.4758 | lr: 7.27e-06 | tok/s: 354
+17478.4s	160	step 4180/4983 | loss: 0.2597 | lr: 7.10e-06 | tok/s: 354

@@ -16,7 +16,6 @@ Results/
 *.log
 *.jsonl
 *.csv
-*.txt
 *.aux
 *.fdb_latexmk
 *.fls
