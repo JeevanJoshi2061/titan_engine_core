@@ -63,10 +63,14 @@ Look inside the `evaluation/` folder to verify the model's performance:
 
 Based on concepts from FHRR/VSAs, Pointer Networks, and State Space Models.
 
-📄 **[Read the Full Technical Paper (PDF)](Latest_symphony_paper.pdf)**
+📄 **[Read the Latest Technical Paper (PDF)](Latest_symphony_paper.pdf)**  
+*(Updated with learned routing and dual-stream FHRR mechanics)*
 
-Jeevan Joshi (2026). *Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks.*
+---
 
+**Previous Draft (Archived):**
+
+Jeevan Joshi (2026). *Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks.*  
 DOI: [10.5281/zenodo.20566771](https://doi.org/10.5281/zenodo.20566771)
 
 ```bibtex
