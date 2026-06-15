@@ -27,7 +27,7 @@ grad_acc = 16
 lr = 1e-4
 wd = 0.01
 seq_len = 512
-epochs = 2
+epochs = 1
 warmup = 300
 clip_norm = 1.0
 max_samples = None
@@ -232,19 +232,12 @@ class Cache(nn.Module):
 
         self.count = self.keys.shape[1]
 
-        ovk = None
-        ovv = None
-
         if self.count > self.cap:
             ov = self.count - self.cap
-            ovk = self.keys[:, :ov, :]
-            ovv = self.values[:, :ov, :]
             self.keys = self.keys[:, ov:, :]
             self.values = self.values[:, ov:, :]
             self.masks = self.masks[:, ov:]
             self.count = self.cap
-
-        return ovk, ovv
 
     def retrieve(self, query):
         if self.keys is None or self.keys.shape[1] == 0:
@@ -316,7 +309,7 @@ class MemLayer(nn.Module):
         vf = v.float()
         qf = q.float()
 
-        ovk, ovv = self.cache.add(kf, vf, sel)
+        self.cache.add(kf, vf, sel)
 
         kfr = torch.fft.rfft(kf, dim=-1)
         vfr = torch.fft.rfft(vf, dim=-1)
@@ -345,14 +338,6 @@ class MemLayer(nn.Module):
         df = (self.lam ** steps).unsqueeze(0).unsqueeze(2).to(dtype=torch.complex64)
         rec = rec + state0.unsqueeze(1) * df
 
-        if ovk is not None:
-            okf = torch.fft.rfft(ovk, dim=-1)
-            ovf = torch.fft.rfft(ovv, dim=-1)
-            oka = torch.sqrt(okf.real.pow(2) + okf.imag.pow(2) + 1e-12)
-            okn = okf / oka.to(dtype=torch.complex64)
-            ob = (okn * ovf).mean(dim=1)
-            rec = rec + ob.unsqueeze(1)
-
         if not self.training:
             self.mem = rec[:, -1, :].detach()
 
@@ -361,6 +346,7 @@ class MemLayer(nn.Module):
         rec = rec * torch.conj(qn)
 
         fhrr_out = torch.fft.irfft(rec, n=D, dim=-1)
+        fhrr_out = torch.clamp(fhrr_out, -65000.0, 65000.0)
 
         exact_out = self.cache.retrieve(qf)
 
@@ -371,8 +357,11 @@ class MemLayer(nn.Module):
         clean = self.norm(proj.float()) * (self.scale / math.sqrt(self.dim))
 
         if self.training:
-            pd = F.pairwise_distance(clean, exact_out, p=2)
-            nd = F.pairwise_distance(clean, fhrr_out, p=2)
+            clean_f = clean.float()
+            exact_f = exact_out.float()
+            fhrr_f = fhrr_out.float()
+            pd = F.pairwise_distance(clean_f, exact_f, p=2, eps=1e-6)
+            nd = F.pairwise_distance(clean_f, fhrr_f, p=2, eps=1e-6)
             self.cl = torch.clamp(1.0 + pd - nd, min=0.0).mean()
         else:
             self.cl = None
@@ -648,7 +637,14 @@ def train():
             else:
                 loss.backward()
 
-            acc_loss += loss.item()
+            lv = loss.item()
+            if math.isnan(lv) or math.isinf(lv):
+                opt.zero_grad()
+                acc_loss = 0.0
+                ms += 1
+                continue
+
+            acc_loss += lv
             ntok = (labels != -100).sum().item()
             ep_toks += ntok
             ms += 1
