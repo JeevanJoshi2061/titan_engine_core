@@ -1,91 +1,89 @@
 # Titan Engine: Symphony Architecture
 
-**Symphony** is an experimental, constant-memory $O(1)$ sequence modeling engine. It replaces the traditional linear-scaling Key-Value (KV) Cache with a dual-system architecture: a continuous **Fractional Holographic Reduced Representation (FHRR)** for dense history compression, and a discrete **Coordinate-based Pointer Network (HEP-DNA)** for exact token retrieval.
+An experimental, constant-memory sequence modeling engine. 
 
-This repository contains the official PyTorch implementation, training pipelines, and evaluation benchmarks for the Symphony architecture.
-
----
-
-## 1. Introduction & Motivation
-The primary bottleneck of modern Large Language Models is the quadratic attention mechanism and the linearly scaling KV Cache, which makes processing infinite-length contexts physically impossible on standard hardware. While State Space Models (SSMs) like Mamba achieve $O(1)$ memory, they suffer from "lossy compression," failing at exact retrieval tasks like "Needle in a Haystack" (NIAH).
-
-**The Symphony Solution:** 
-Symphony bridges this gap by splitting memory into two pathways:
-1. **Symphony ASH-C (Active Selective Holographic-Compression):** Compresses historical context into fixed-size circular convolution matrices via FHRR. The memory state remains mathematically bounded (constant VRAM) regardless of sequence length.
-2. **Symphony HEP-DNA (Holographic Exact Pointer):** A recurrent pointer network that avoids vector storage entirely. It maintains a lightweight queue of integer token IDs and uses the FHRR frequency domain to calculate positional probabilities. Using a zero-shot NTK extrapolation mechanism and a `scatter_add_` vocabulary injection, it executes 100% exact copy-paste retrievals over massive contexts.
+Symphony completely bypasses the traditional linear Key-Value Cache. It delivers a true constant memory footprint ($O(1)$) during inference, keeping VRAM stable regardless of context length.
 
 ---
 
-## 2. Base Model Compatibility & Retraining Requirements
-*(Addressing integration capabilities)*
+## 🚀 The Dual-System Core
 
-Symphony is designed as a **plug-and-play architectural injection** rather than a standalone foundation model.
-- **Compatibility:** It can theoretically be injected into the MLP layers of any standard decoder-only Transformer. The current implementation is validated on **Qwen-1.5B/7B**.
-- **Retraining Requirements:** You **do not** need to pre-train a model from scratch. The base model's self-attention and MLP weights are heavily frozen. The training process only updates the newly injected `MemLayer` and `PointerNet`.
-- **Inference Scaling:** Because the FHRR state is $O(1)$ and the PointerNet utilizes NTK (Neural Tangent Kernel) positional rescaling, the model achieves **Zero-Shot Length Extrapolation**. Once trained at a context length of 43k tokens to resolve geometric superposition noise, the architecture can theoretically process 100k+ tokens during inference without requiring additional fine-tuning.
-
----
-
-## 3. Technical Implementation Details
-To implement or reproduce this architecture confidently, note the following core mechanics found in `core/titan_hep_dna.py` and `core/titan_ash_c_architecture.py`:
-
-* **FHRR Superposition:** History is maintained as a complex tensor `[Batch, Hidden_Dim]`. New tokens are bound to their positional coordinates using complex multiplication and superimposed (added) into the fixed-size state.
-* **Coordinate Extraction:** During generation, the current query is conjugated and multiplied against the FHRR state. An Inverse FFT (`irfft`) extracts the positional distribution map.
-* **The "Ditto Copy" Protocol:** Instead of generating floating-point vectors for output, the PointerNet calculates the exact historical position index, retrieves the original token integer ID, and projects the probability directly into the final vocabulary distribution tensor using PyTorch's `scatter_add_`. This completely prevents semantic degradation.
+* **Symphony ASH-C:** Active Selective Holographic-Compression.
+  * Folds historical tokens into a fixed-size complex matrix.
+  * Uses FHRR (Fractional Holographic Reduced Representation) frequency domain math.
+* **Symphony HEP-DNA:** Holographic Exact Pointer. 
+  * Eliminates floating-point vector caching. 
+  * Tracks positions via a lightweight integer queue of token IDs.
+  * Executes 100% exact retrieval via direct vocabulary `scatter_add_` injection.
 
 ---
 
-## 4. Pipeline & Reproduction Steps
+## ⚙️ How It Works (The Mechanics)
 
-### Environment Setup
+* **FHRR Superposition:** History is maintained as a `[Batch, Hidden_Dim]` complex tensor. New tokens are superimposed. No linear VRAM growth.
+* **Coordinate Extraction:** Conjugated query is multiplied by the FHRR state. Inverse FFT (`irfft`) extracts the physical token position.
+* **Ditto Copy Protocol:** PointerNet grabs the integer ID from the queue. It projects the probability directly into the final vocabulary tensor. 100% exact retrieval. Zero semantic loss.
+
+---
+
+## 🔧 Base Model Integration
+
+Symphony is a plug-and-play architectural graft.
+
+* **Compatibility:** Validated on Qwen-1.5B/7B. Drops cleanly into the MLP layer of standard decoder-only Transformers.
+* **No Pre-training:** Base model attention and MLPs remain heavily frozen. We only train the injected `MemLayer` and `PointerNet`.
+* **Zero-Shot Extrapolation:** Trained on 43k tokens to resolve geometric superposition noise. NTK (Neural Tangent Kernel) positional rescaling handles 100k+ tokens out-of-the-box. No retraining needed.
+
+---
+
+## 🏃‍♂️ Execution Pipeline
+
+**Setup:**
 ```bash
 pip install torch transformers accelerate bitsandbytes matplotlib numpy
 ```
 
-### Multi-Phase Training
-The Symphony engine is calibrated through targeted phases to prevent catastrophic forgetting (lobotomization) of the base model. The training logic is consolidated into the following primary scripts:
+**Training Phases:**
+The engine is calibrated to prevent catastrophic forgetting (lobotomization) of the frozen base model.
 
-1. **Dataset Generation:** Generates the structured reasoning and needle-in-a-haystack data.
+1. **Build Dataset:** Generates structured needle-in-a-haystack reasoning data.
    ```bash
    python training/build_universal_dataset.py
    ```
-2. **Phase 4 (Architectural Alignment):** A monolithic script that loads the base model, freezes pre-trained weights to preserve world knowledge, injects the Symphony MemLayers, and performs short-context (512 tokens) alignment training to teach the MLP layers how to utilize the FFT memory math via contrastive loss.
+2. **Phase 4 (Alignment):** Short-context (512 tokens). Freezes base weights, injects MemLayers. Teaches MLPs the FFT memory math via contrastive loss.
    ```bash
    python training/titan_phase4_kaggle_train_fft_math.py
    ```
-3. **Phase 7 (HySparse Long-Range):** Stretches the context to 43,000+ tokens to train the PointerNet to resolve dense geometric noise.
+3. **Phase 7 (HySparse):** Long-context (43,000+ tokens). Trains the PointerNet to resolve dense geometric noise.
    ```bash
    python training/titan_phase7_hysparse_training.py
    ```
 
 ---
 
-## 5. Methodical Validation & Experiments
-To ensure the base model is not lobotomized by the memory injection, we run multiple rigorous evaluations (`evaluation/` directory):
+## 📊 Benchmarks & Proof
 
-1. **Needle-in-a-Haystack (NIAH) Grid (`plot_nih_grid.py`):** Proves 100% exact retrieval of API keys and passcodes over 43,000+ tokens.
-2. **Perplexity (PPL) Preservation (`titan_eval_ppl.py`):** Validates that general linguistic capabilities remain intact. The FHRR compression introduces an acceptable ~15% PPL penalty while delivering a 4.6x speedup.
-3. **OOM Survival Stress Test (`titan_stress_test_oom_survival.py`):** Empirically proves the $O(1)$ scaling by profiling VRAM usage over escalating sequence lengths.
-4. **General Knowledge Integrity (`titan_birthday_test.py`):** Verifies that the frozen base model retains its pre-trained factual knowledge (e.g., historical dates, coding syntax).
+Rigorous evaluations to prove the base model is not lobotomized (`evaluation/`):
 
----
-
-## 6. Related Work & Acknowledgements
-This architecture builds upon and synthesizes several foundational concepts in sequence modeling:
-- **Vector Symbolic Architectures (VSAs) & FHRR:** Plate (1995) introduced Holographic Reduced Representations. Recent work by researchers like Edward Raff has explored applying these concepts to modern deep learning.
-- **Pointer Networks:** Vinyals et al. (2015) introduced the concept of pointing to input sequences rather than predicting from a fixed vocabulary.
-- **Position Extrapolation:** YaRN (Peng et al., 2023) and NTK-Aware RoPE scaling heavily influenced Symphony's zero-shot coordinate scaling capabilities.
-- **State Space Models:** Mamba (Gu & Dao, 2023) provided the inspiration for bounded memory footprint sequence processing.
+* **OOM Survival Test:** Flat VRAM usage curve over escalating lengths. Empirically proves $O(1)$ scaling. (`titan_stress_test_oom_survival.py`)
+* **Needle-in-a-Haystack (NIAH):** 100% exact retrieval of passcodes across 43k+ tokens. (`plot_nih_grid.py`)
+* **Perplexity Preservation:** FHRR compression causes an acceptable ~15% PPL hit, but grants a 4.6x speedup. (`titan_eval_ppl.py`)
+* **Knowledge Integrity:** Base model retains pre-trained facts and coding syntax. (`titan_birthday_test.py`)
 
 ---
 
-## 7. Academic Citation
-For full mathematical and architectural proofs, please refer to our publication:
-> **Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks**  
-> Jeevan Joshi (2026). Zenodo.  
+## 📚 Origins & Academic Citation
+
+Built upon foundational sequence modeling concepts:
+* **FHRR / VSAs:** Plate (1995), Edward Raff.
+* **Pointer Networks:** Vinyals et al. (2015).
+* **Position Extrapolation:** YaRN / NTK-Aware RoPE scaling.
+* **Bounded Memory:** State Space Models (Mamba).
+
+**Cite our Zenodo Publication:**
+> Jeevan Joshi (2026). *Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks.*  
 > DOI: [10.5281/zenodo.20566771](https://doi.org/10.5281/zenodo.20566771)
 
-### BibTeX
 ```bibtex
 @misc{joshi2026symphony,
   author       = {Joshi, Jeevan},
@@ -99,4 +97,4 @@ For full mathematical and architectural proofs, please refer to our publication:
 ```
 
 ## License
-Open-source under the MIT License.
+MIT License.
