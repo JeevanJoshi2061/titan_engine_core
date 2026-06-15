@@ -1,6 +1,6 @@
 # Titan Engine: Symphony Architecture
 
-📄 **[Read the Full Paper (PDF)](Symphony_Paper.pdf)**
+📄 **[Read the Full Paper (PDF)](Latest_symphony_paper.pdf)**
 
 An experimental sequence modeling engine that runs on constant memory.
 
@@ -63,7 +63,7 @@ Look inside the `evaluation/` folder to verify the model's performance:
 
 Based on concepts from FHRR/VSAs, Pointer Networks, and State Space Models.
 
-📄 **[Read the Full Technical Paper (PDF)](Symphony_Paper.pdf)**
+📄 **[Read the Full Technical Paper (PDF)](Latest_symphony_paper.pdf)**
 
 Jeevan Joshi (2026). *Symphony: Constant-Memory Sequence Modeling via Holographic Recurrence and Coordinate Pointer Networks.*
 
