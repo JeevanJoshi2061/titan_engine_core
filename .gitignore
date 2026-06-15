@@ -25,7 +25,6 @@ Results/
 *.synctex.gz
 *.bbl
 *.blg
-*.pdf
 *.zip
 .vscode/
 .idea/
