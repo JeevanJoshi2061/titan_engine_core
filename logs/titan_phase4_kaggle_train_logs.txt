@@ -529,3 +529,70 @@ after that i run as epoch 1  so i resume that checkpoint and here is logs:
 17205.7s	158	step 4160/4983 | loss: 1.0557 | lr: 7.45e-06 | tok/s: 354
 17347.8s	159	step 4170/4983 | loss: 0.4758 | lr: 7.27e-06 | tok/s: 354
 17478.4s	160	step 4180/4983 | loss: 0.2597 | lr: 7.10e-06 | tok/s: 354
+17621.3s	162	step 4190/4983 | loss: 0.0896 | lr: 6.93e-06 | tok/s: 354
+17751.8s	163	step 4200/4983 | loss: 0.3285 | lr: 6.76e-06 | tok/s: 354
+17927.4s	164	step 4210/4983 | loss: 1.1089 | lr: 6.59e-06 | tok/s: 355
+18071.1s	165	step 4220/4983 | loss: 0.1048 | lr: 6.42e-06 | tok/s: 355
+18213.5s	166	step 4230/4983 | loss: 0.8954 | lr: 6.26e-06 | tok/s: 355
+18342.4s	167	step 4240/4983 | loss: 0.0510 | lr: 6.10e-06 | tok/s: 355
+18487.1s	168	step 4250/4983 | loss: 1.0687 | lr: 5.94e-06 | tok/s: 355
+18636.8s	169	step 4260/4983 | loss: 0.2797 | lr: 5.78e-06 | tok/s: 355
+18754.5s	170	step 4270/4983 | loss: 0.5254 | lr: 5.63e-06 | tok/s: 355
+18943.6s	171	step 4280/4983 | loss: 0.3905 | lr: 5.47e-06 | tok/s: 355
+19082.8s	172	step 4290/4983 | loss: 0.5309 | lr: 5.32e-06 | tok/s: 355
+19223.5s	173	step 4300/4983 | loss: 0.4214 | lr: 5.17e-06 | tok/s: 355
+19400.4s	174	step 4310/4983 | loss: 0.2800 | lr: 5.02e-06 | tok/s: 355
+19539.8s	175	step 4320/4983 | loss: 0.5217 | lr: 4.88e-06 | tok/s: 355
+19683.1s	176	step 4330/4983 | loss: 0.1618 | lr: 4.74e-06 | tok/s: 355
+19868.5s	177	step 4340/4983 | loss: 1.3444 | lr: 4.59e-06 | tok/s: 355
+20012.4s	178	step 4350/4983 | loss: 0.4013 | lr: 4.45e-06 | tok/s: 355
+20165.9s	179	step 4360/4983 | loss: 0.1472 | lr: 4.32e-06 | tok/s: 355
+20297.7s	180	step 4370/4983 | loss: 0.7380 | lr: 4.18e-06 | tok/s: 355
+20436.4s	181	step 4380/4983 | loss: 0.4678 | lr: 4.05e-06 | tok/s: 355
+20575.6s	182	step 4390/4983 | loss: 0.7656 | lr: 3.92e-06 | tok/s: 355
+20728.8s	183	step 4400/4983 | loss: 1.5240 | lr: 3.79e-06 | tok/s: 355
+20868.4s	184	step 4410/4983 | loss: 0.8145 | lr: 3.66e-06 | tok/s: 355
+21021.9s	185	step 4420/4983 | loss: 0.1430 | lr: 3.54e-06 | tok/s: 355
+21196.1s	186	step 4430/4983 | loss: 0.2945 | lr: 3.41e-06 | tok/s: 355
+21325.1s	187	step 4440/4983 | loss: 0.1853 | lr: 3.29e-06 | tok/s: 355
+21490.7s	188	step 4450/4983 | loss: 0.5800 | lr: 3.17e-06 | tok/s: 355
+21633.0s	189	step 4460/4983 | loss: 0.1444 | lr: 3.06e-06 | tok/s: 355
+21844.4s	190	step 4470/4983 | loss: 0.1301 | lr: 2.94e-06 | tok/s: 355
+21988.2s	191	step 4480/4983 | loss: 0.2572 | lr: 2.83e-06 | tok/s: 355
+22190.2s	192	step 4490/4983 | loss: 0.4538 | lr: 2.72e-06 | tok/s: 355
+22377.1s	193	step 4500/4983 | loss: 0.5592 | lr: 2.61e-06 | tok/s: 355
+22380.9s	194	saved /kaggle/working/checkpoints/titan_symphony_step4500.pt (2117.3 MB, loss=0.5592)
+22522.2s	195	step 4510/4983 | loss: 0.6007 | lr: 2.51e-06 | tok/s: 354
+22667.3s	196	step 4520/4983 | loss: 0.2640 | lr: 2.40e-06 | tok/s: 354
+22838.9s	197	step 4530/4983 | loss: 0.2603 | lr: 2.30e-06 | tok/s: 354
+23009.9s	198	step 4540/4983 | loss: 0.9473 | lr: 2.20e-06 | tok/s: 354
+23153.1s	199	step 4550/4983 | loss: 0.2711 | lr: 2.10e-06 | tok/s: 354
+23304.9s	200	step 4560/4983 | loss: 2.0873 | lr: 2.01e-06 | tok/s: 354
+23457.9s	201	step 4570/4983 | loss: 0.4821 | lr: 1.92e-06 | tok/s: 354
+23500.7s	202	
+23500.7s	203	epoch 1 done | avg loss: 0.1756 | time: 23427.6s
+23504.6s	204	saved /kaggle/working/checkpoints/titan_symphony_epoch1.pt (2117.3 MB, loss=0.1756)
+23504.6s	205	
+23504.6s	206	training complete, exporting weights
+23506.3s	207	weights saved to /kaggle/working/titan_model/titan_symphony_weights.pt
+23506.3s	208	
+23506.3s	209	--- generation test ---
+23512.5s	210	Q: Question: What is 15 * 7?
+23512.5s	211	A:  105
+23512.5s	212	[ Question ID ] : 2364 [ Topic ] : Multiplication Table of 10 - 19
+23512.5s	213	
+23512.5s	214	To solve the problem, we need to multiply 15 by 7.
+23512.5s	215	
+23512.5s	216	Step-by-step
+23518.1s	217	Q: Question: If A > B and B > C, is A > C?
+23518.1s	218	A:  Let's think step by step:
+23518.1s	219	1. We are given two inequalities: A > B and B > C.
+23518.1s	220	2. To compare A and C directly, we need to consider the relationship bet
+23523.9s	221	/usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\|'
+23523.9s	222	  cells[i][c] = re.sub('\\\\\|', '|', cell)
+23524.1s	223	/usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\_'
+23524.1s	224	  text = re.sub(r'_', '\_', text) # Escape underscores in display text
+23524.7s	225	[NbConvertApp] Converting notebook __notebook__.ipynb to notebook
+23525.0s	226	[NbConvertApp] Writing 58183 bytes to __notebook__.ipynb
+23527.4s	227	[NbConvertApp] Converting notebook __notebook__.ipynb to html
+23528.3s	228	[NbConvertApp] Writing 435765 bytes to __results__.html
