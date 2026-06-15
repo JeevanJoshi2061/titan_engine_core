@@ -179,7 +179,8 @@ class MemLayer(nn.Module):
         qn = qfr / qa.to(dtype=torch.complex64)
         rec = rec * torch.conj(qn)
 
-        fhrr_out = torch.fft.irfft(rec, n=D, dim=-1).to(x.dtype)
+        fhrr_out = torch.fft.irfft(rec, n=D, dim=-1)
+        fhrr_out = torch.clamp(fhrr_out, -65000.0, 65000.0).to(x.dtype)
         exact_out = self.cache.retrieve(q).to(x.dtype)
 
         combined = torch.cat([fhrr_out, exact_out], dim=-1)
@@ -191,6 +192,6 @@ class MemLayer(nn.Module):
 
 
 def contrastive_loss(clean, target, distractor, margin=1.0):
-    pd = F.pairwise_distance(clean, target, p=2)
-    nd = F.pairwise_distance(clean, distractor, p=2)
+    pd = F.pairwise_distance(clean.float(), target.float(), p=2, eps=1e-6)
+    nd = F.pairwise_distance(clean.float(), distractor.float(), p=2, eps=1e-6)
     return torch.clamp(margin + pd - nd, min=0.0).mean()
