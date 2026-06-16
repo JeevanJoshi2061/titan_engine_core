@@ -16,8 +16,7 @@ from titan_ash_c_architecture import MemLayer
 from titan_hep_dna import PointerNet
 from titan_config import SOURCE_MODEL, DEVICE, DTYPE
 
-PHASE4_WEIGHTS = r"E:\titan Engine new\phase 4 result\titan_symphony_weights.pt"
-PHASE5_WEIGHTS = r"E:\titan Engine new\checkpoints_phase6\titan_hepdna_longrange_final.pt"
+PHASE4_WEIGHTS = r"E:\titan Engine new\titan_engine_core\phase 4 result\titan_model\titan_symphony_weights.pt"
 OUTPUT_DIR = r"E:\titan Engine new\checkpoints_phase7"
 
 BATCH_SIZE = 1
