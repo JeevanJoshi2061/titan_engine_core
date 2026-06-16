@@ -271,8 +271,8 @@ def train():
         # This preserves the full continuous computation graph, allowing gradients to flow
         # perfectly from queries all the way back to keys thousands of tokens ago!
         loss_tensor, gate_tensor = hep_dna(
-            hidden_states=shift_hidden,
-            input_ids=shift_input_ids,
+            hidden=shift_hidden,
+            ids=shift_input_ids,
             lm_logits=shift_lm_logits,
             target_ids=shift_labels
         )
