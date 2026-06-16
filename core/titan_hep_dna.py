@@ -263,10 +263,10 @@ class PointerNet(nn.Module):
             rp = torch.clamp(rp, -65000.0, 65000.0).to(hidden.dtype)
 
             pe_pad = F.pad(self.pos_emb, (0, 0, 0, K * C - self.pos_emb.shape[0]))
-            pe_r = pe_pad[:K*C].view(K, C, D).to(device=device, dtype=hidden.dtype)
+            pe_r = pe_pad[:K*C].reshape(K, C, D).to(device=device, dtype=hidden.dtype)
 
             pl = torch.einsum("bskd,kcd->bskc", rp, pe_r)
-            pl = pl.view(B, S, K * C)
+            pl = pl.reshape(B, S, K * C)
             pl = pl[:, :, :S] / math.sqrt(self.dim)
 
             ti_seq = torch.arange(S, device=device).unsqueeze(0)
