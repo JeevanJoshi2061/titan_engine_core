@@ -46,16 +46,16 @@ python training/titan_phase4_kaggle_train_fft_math.py
 python training/titan_phase7_hysparse_training.py
 ```
 
+4. **Phase 7 Kaagle Script(All Combined Of core files ) (Long Range):** Stretch the context to 43k+ tokens to fine-tune the pointer network.
+```bash
+python training/titan_phase7_kaggle_hysparse.py
+```
+
 ---
 
 ## Benchmarks & Tests
 
-Look inside the `evaluation/` folder to verify the model's performance:
-
-* `titan_stress_test_oom_survival.py`: Checks VRAM stability over escalating lengths.
-* `plot_nih_grid.py`: Tests the ability to find specific passcodes at 43k context length.
-* `titan_eval_ppl.py`: Measures standard language accuracy vs speed.
-* `titan_birthday_test.py`: Ensures the frozen base model hasn't forgotten its original facts.
+Look inside the `logs/` folder to verify the model's performance.
 
 ---
 
