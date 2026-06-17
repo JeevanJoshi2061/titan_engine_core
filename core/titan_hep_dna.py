@@ -106,7 +106,7 @@ class PointerNet(nn.Module):
         self.qp = nn.Linear(dim, dim, bias=False)
         self.gp = nn.Linear(dim, 1)
         nn.init.normal_(self.gp.weight, std=0.01)
-        nn.init.constant_(self.gp.bias, -10.0)
+        nn.init.constant_(self.gp.bias, -2.0)
 
         self.register_buffer("pos_emb", self._make_pos(max_len, dim))
         self.reset_inference_state()
@@ -274,9 +274,10 @@ class PointerNet(nn.Module):
             cm = (ti_seq > qi_seq).unsqueeze(0)
             pl.masked_fill_(cm, -1e4)
 
-            pp = F.softmax(pl, dim=-1)
-            ps = torch.zeros_like(pp)
-            ps[:, :, 1:] = pp[:, :, :-1]
+            log_pp = F.log_softmax(pl, dim=-1)
+            # log_ps should be shape (B, S, S) representing the log probabilities
+            log_ps = torch.full_like(log_pp, -1e4)
+            log_ps[:, :, 1:] = log_pp[:, :, :-1]
 
             mm = (self._ids.unsqueeze(1) == target_ids.unsqueeze(2)).to(hidden.dtype)
 
@@ -284,24 +285,30 @@ class PointerNet(nn.Module):
             if active.any():
                 first = active.nonzero(as_tuple=True)[1].min().item()
                 mm[:, :, first:] = 0.0
-
-            ptp = torch.sum(ps * mm, dim=-1)
+            
+            # Stable pointer target probability using logsumexp
+            ptp = torch.exp(log_ps)
+            ptp_target = torch.sum(ptp * mm, dim=-1)
+            
+            # log(sum(exp(log_ps * mm))) mathematically safe:
+            log_ps_masked = log_ps.masked_fill(mm == 0, float('-inf'))
+            ptl_stable = -torch.logsumexp(log_ps_masked, dim=-1)
 
             if lm_logits is not None:
                 lm_lp = F.log_softmax(lm_logits, dim=-1)
                 safe_t = torch.where(target_ids == -100, torch.zeros_like(target_ids), target_ids)
                 lm_tp = torch.exp(torch.gather(lm_lp, dim=-1, index=safe_t.unsqueeze(-1)).squeeze(-1))
-                ftp = (1.0 - gate.squeeze(-1)) * lm_tp + gate.squeeze(-1) * ptp
+                ftp = (1.0 - gate.squeeze(-1)) * lm_tp + gate.squeeze(-1) * ptp_target
             else:
-                ftp = ptp
+                ftp = ptp_target
 
             gl = -torch.log(ftp + 1e-12)
-            ptl = -torch.log(ptp + 1e-12)
+            ptl = ptl_stable
 
             copyable = (mm * (~cm).to(hidden.dtype)).any(dim=-1)
             ptl = torch.where(copyable, ptl, torch.zeros_like(ptl))
 
-            loss = gl + 0.1 * ptl
+            loss = gl + 1.0 * ptl
             return loss, gate
 
         elif prefill:

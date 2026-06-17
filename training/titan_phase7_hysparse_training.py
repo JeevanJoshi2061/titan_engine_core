@@ -21,7 +21,10 @@ OUTPUT_DIR = r"E:\titan Engine new\checkpoints_phase7"
 
 BATCH_SIZE = 1
 LEARNING_RATE = 2e-3
-MAX_STEPS = 1000
+MAX_STEPS = 7000
+
+RESUME_CHECKPOINT = r"E:\titan Engine new\checkpoints_phase7\titan_hysparse_p7_step5600.pt"
+START_STEP = 5600
 
 SCALE_SCHEDULE = [
     (300,  512),
@@ -189,7 +192,16 @@ def prepare_model():
         use_triton=False
     ).to(device=device, dtype=torch.bfloat16)
     
-    log.info("Initializing HEP-DNA pointer from scratch for unified training...")
+    if RESUME_CHECKPOINT and os.path.exists(RESUME_CHECKPOINT):
+        log.info(f"Resuming HEP-DNA pointer from {RESUME_CHECKPOINT}...")
+        hep_state = torch.load(RESUME_CHECKPOINT, map_location=device, weights_only=True)
+        
+        # Pre-scale positional embeddings to match the checkpoint's shape (4096 + 256 = 4352)
+        hep_dna.rescale_positions_ntk(max_training_len)
+        
+        hep_dna.load_state_dict(hep_state)
+    else:
+        log.info("Initializing HEP-DNA pointer from scratch for unified training...")
     
     for param in model.parameters():
         param.requires_grad = False
@@ -206,14 +218,20 @@ def train():
     model.eval()
     hep_dna.train()
     
-    step = 0
+    step = START_STEP
     current_scale_idx = 0
-    current_seq_len = SCALE_SCHEDULE[0][1]
+    
+    # Fast-forward scale schedule
+    while current_scale_idx < len(SCALE_SCHEDULE) - 1 and step >= SCALE_SCHEDULE[current_scale_idx][0]:
+        current_scale_idx += 1
+        
+    current_seq_len = SCALE_SCHEDULE[current_scale_idx][1]
     
     dataset = LongRangeCopyDataset(tokenizer, seq_len=current_seq_len)
     dataloader = iter(DataLoader(dataset, batch_size=BATCH_SIZE))
+    hep_dna.rescale_positions_ntk(current_seq_len)
     
-    log.info(f"Starting Phase 7 long-range calibration...")
+    log.info(f"Resuming Phase 7 long-range calibration from step {step} at SEQ_LEN={current_seq_len}...")
     
     start_time = time.time()
     
@@ -280,11 +298,18 @@ def train():
         loss = loss_tensor[valid_mask].mean()
         loss.backward()
         
-        torch.nn.utils.clip_grad_norm_(hep_dna.parameters(), 1.0)
+        gnorm = torch.nn.utils.clip_grad_norm_(hep_dna.parameters(), 1.0)
+        
+        if step == 0:
+            log.info(f"DEBUG: gnorm = {gnorm.item()}")
+            g_norm = hep_dna.gp.weight.grad.norm().item() if hep_dna.gp.weight.grad is not None else None
+            log.info(f"DEBUG: gp weight grad = {g_norm}")
         optimizer.step()
         
         loss_val = loss.item()
         mean_gate = gate_tensor.squeeze(-1)[valid_mask].mean().item()
+        if step == 0:
+            log.info(f"DEBUG GATE TENSOR AT VALID MASK: {gate_tensor.squeeze(-1)[valid_mask].tolist()}")
         
         step += 1
         
