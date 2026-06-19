@@ -41,12 +41,12 @@ python training/build_universal_dataset.py
 python training/titan_phase4_kaggle_train_fft_math.py
 ```
 
-3. **Phase 7 (Long Range):** Stretch the context to 43k+ tokens to fine-tune the pointer network.
+3. Outdated (Need Update)**Phase 7 (Long Range):** Stretch the context to 43k+ tokens to fine-tune the pointer network.
 ```bash
 python training/titan_phase7_hysparse_training.py
 ```
 
-4. **Phase 7 Kaagle Script(All Combined Of core files ) (Long Range):
+4. ( "Fully Updated" )**Phase 7 Kaagle Script(All Combined Of core files ) (Long Range):
 ```bash
 python training/titan_phase7_kaggle_hysparse.py
 ```
