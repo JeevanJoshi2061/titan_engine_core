@@ -293,285 +293,175 @@ def triton_fhrr_scan(keys, values, init=None, lam=0.99):
 
 
 class PointerNet(nn.Module):
-    def __init__(self, dim, vocab, max_len=2048, lam=0.999, use_triton=True):
+    def __init__(self, dim, vocab, scales=[0.5, 0.9, 0.999], max_len=None, lam=None, use_triton=None):
         super().__init__()
         self.dim = dim
         self.vocab = vocab
-        self.max_len = max_len
-        self.lam = lam
-        self.use_triton = use_triton and HAS_TRITON
-
+        self.scales = scales
+        
         self.kp = nn.Linear(dim, dim, bias=False)
+        self.vp = nn.Linear(dim, dim, bias=False)
         self.qp = nn.Linear(dim, dim, bias=False)
+        
+        self.out_proj1 = nn.Linear(dim * len(scales), dim * 2, bias=False)
+        self.out_proj2 = nn.Linear(dim * 2, dim, bias=False)
+        self.act = nn.SiLU()
+        self.norm = nn.RMSNorm(dim)
+        
         self.gp = nn.Linear(dim, 1)
         nn.init.normal_(self.gp.weight, std=0.01)
         nn.init.constant_(self.gp.bias, -2.0)
 
-        self.register_buffer("pos_emb", self._make_pos(max_len, dim))
+        fdim = dim // 2 + 1
+        self.register_buffer("freqs", self._make_freqs(fdim))
         self.reset_inference_state()
 
+    def _make_freqs(self, fdim, base=10000.0):
+        idx = torch.arange(fdim, dtype=torch.float32)
+        freqs = 1.0 / (base ** (idx / fdim))
+        return freqs
+
     def reset_inference_state(self):
-        self._state = None
-        self._ids = None
-        self._seq_len = 0
-        self.exact_h = []
-        self.exact_i = []
-        self._prompt_len = 0
-
+        self._states = None
+        self._t = 0
+        
     def rescale_positions_ntk(self, total_len, trained_max=512):
-        if total_len <= trained_max:
-            return
-        alpha = total_len / trained_max
-        d = self.dim
-        new_base = 10000.0 * (alpha ** (d / (d - 2)))
-        device = self.pos_emb.device
-        padded = total_len + 256
-        self.pos_emb = self._make_pos(padded, d, base=new_base).to(device)
-
-    def _make_pos(self, length, dim, base=10000.0):
-        pos = torch.arange(length, dtype=torch.float32).unsqueeze(1)
-        di = torch.arange(dim, dtype=torch.float32).unsqueeze(0)
-        rates = 1.0 / torch.pow(base, (2.0 * (di // 2)) / dim)
-        angles = pos * rates
-        emb = torch.zeros(length, dim)
-        emb[:, 0::2] = torch.sin(angles[:, 0::2])
-        emb[:, 1::2] = torch.cos(angles[:, 1::2])
-        return emb
+        # No-op: True O(1) memory uses relative RoPE, not absolute bounded encodings!
+        pass
 
     def _norm_fft(self, x):
         return x / (torch.abs(x) + 1e-6)
 
-    def forward(self, hidden, ids, lm_logits=None, target_ids=None, oracle_scores=None, prefill=False):
+    def forward(self, hidden, ids=None, lm_logits=None, target_ids=None, oracle_scores=None, prefill=False, lm_head_weight=None):
         B, S, D = hidden.shape
         device = hidden.device
-
-        if prefill:
-            if self._seq_len == 0:
-                self.reset_inference_state()
-            if oracle_scores is not None:
-                k = max(1, int(S * 0.20))
-                topk_v, topk_i = torch.topk(oracle_scores, k, dim=1)
-
-                gi = topk_i.unsqueeze(-1).expand(-1, -1, D)
-                eh = torch.gather(hidden, 1, gi).detach()
-
-                ni = (topk_i + 1).clamp(max=S-1)
-                ei = torch.gather(ids, 1, ni).detach()
-
-                self.exact_h.append(eh)
-                self.exact_i.append(ei)
-
+        dtype = hidden.dtype
+        fdim = D // 2 + 1
+        
         keys = self.kp(hidden).float()
+        vals = self.vp(hidden).float()
         queries = self.qp(hidden).float()
-        off = self._seq_len
-        vals = self.pos_emb[off:off+S].unsqueeze(0).expand(B, -1, -1).to(device=device, dtype=torch.float32)
-
-        if self._ids is not None:
-            self._ids = torch.cat([self._ids, ids], dim=1)
-        else:
-            self._ids = ids.clone()
-
-        C = 512
+        
         kf = torch.fft.rfft(keys, dim=-1)
-        qf = torch.fft.rfft(queries, dim=-1)
         vf = torch.fft.rfft(vals, dim=-1)
-
-        kn = self._norm_fft(kf)
-        qn = self._norm_fft(qf)
+        qf = torch.fft.rfft(queries, dim=-1)
+        
+        pos = torch.arange(self._t, self._t + S, device=device, dtype=torch.float32).unsqueeze(1)
+        angles = pos * self.freqs.unsqueeze(0)
+        angles = angles.unsqueeze(0).expand(B, -1, -1)
+        rot = torch.polar(torch.ones_like(angles), angles)
+        
+        kf_rot = kf * rot
+        qf_rot = qf * rot
+        
+        kn = self._norm_fft(kf_rot)
+        qn = self._norm_fft(qf_rot)
         bound = kn * vf
-
-        if S > 1:
-            K = (S + C - 1) // C
-            pad = K * C - S
-            if pad > 0:
-                bp = F.pad(bound, (0, 0, 0, pad))
-            else:
-                bp = bound
-
-            br = bp.view(B, K, C, -1)
-            cs = torch.cumsum(br, dim=2)
-            fs = cs[:, :, -1, :]
-
-            if prefill:
-                if S <= C:
-                    self._done_chunks = None
-                    self._cur_chunk = cs[:, 0, S-1, :].detach()
-                    self._cur_len = S
-                else:
-                    if S % C == 0:
-                        self._done_chunks = fs.detach()
-                        self._cur_chunk = None
-                        self._cur_len = 0
-                    else:
-                        self._done_chunks = fs[:, :K-1, :].detach()
-                        self._cur_chunk = cs[:, -1, (S % C) - 1, :].detach()
-                        self._cur_len = S % C
-
-            ti = torch.arange(K * C, device=device)
-            ci = ti // C
-            ii = ti % C
-            ji = torch.arange(K, device=device)
-
-            cg = ci.unsqueeze(1)
-            jg = ji.unsqueeze(0)
-
-            is_past = (jg < cg)
-            is_active = (jg == cg)
-
-            past_s = fs.unsqueeze(1).expand(-1, K * C, -1, -1)
-            active_s = cs[:, ci, ii, :]
-
-            hist = torch.zeros(B, K * C, K, kf.shape[-1], dtype=bound.dtype, device=device)
-            hist = torch.where(is_past.unsqueeze(0).unsqueeze(-1), past_s, hist)
-            hist = torch.where(is_active.unsqueeze(0).unsqueeze(-1), active_s.unsqueeze(2), hist)
-            hist = hist[:, :S, :, :]
-
+        
+        retrieved_scales = []
+        
+        if self.training or S > 1:
+            ti = torch.arange(S, device=device).unsqueeze(1)
+            ii = torch.arange(S, device=device).unsqueeze(0)
+            pw = torch.clamp(ti - ii, min=0)
+            msk = (ti - ii >= 0).float()
+            
+            new_states = []
+            for i, lam in enumerate(self.scales):
+                sc = math.sqrt(1.0 - lam**2)
+                W = ((lam ** pw) * msk).to(dtype=torch.complex64)
+                rec = sc * torch.einsum("st,btd->bsd", W, bound)
+                
+                if self._states is not None:
+                    state0 = self._states[i]
+                    steps = torch.arange(1, S + 1, device=device, dtype=torch.float32)
+                    df = (lam ** steps).unsqueeze(0).unsqueeze(2).to(dtype=torch.complex64)
+                    rec = rec + state0.unsqueeze(1) * df
+                
+                new_states.append(rec[:, -1, :].detach())
+                uf = rec * torch.conj(qn)
+                rp = torch.fft.irfft(uf, n=D, dim=-1)
+                rp = torch.clamp(rp, -65000.0, 65000.0).to(dtype)
+                retrieved_scales.append(rp)
+            self._states = new_states
         else:
-            bt = bound.squeeze(1)
-            if self._cur_chunk is None:
-                self._cur_chunk = bt
-            else:
-                self._cur_chunk = self._cur_chunk + bt
-            self._cur_len += 1
-
-            if self._cur_len == C:
-                if self._done_chunks is None:
-                    self._done_chunks = self._cur_chunk.unsqueeze(1)
+            new_states = []
+            for i, lam in enumerate(self.scales):
+                sc = math.sqrt(1.0 - lam**2)
+                if self._states is None:
+                    state0 = torch.zeros(B, fdim, dtype=torch.complex64, device=device)
                 else:
-                    self._done_chunks = torch.cat([self._done_chunks, self._cur_chunk.unsqueeze(1)], dim=1)
-                self._cur_chunk = torch.zeros_like(self._cur_chunk)
-                self._cur_len = 0
-
-            if self._done_chunks is not None:
-                if self._cur_len > 0:
-                    hist = torch.cat([self._done_chunks, self._cur_chunk.unsqueeze(1)], dim=1)
-                else:
-                    hist = self._done_chunks
-            else:
-                hist = self._cur_chunk.unsqueeze(1)
-
-            K = hist.shape[1]
-
-        self._seq_len += S
-
+                    state0 = self._states[i]
+                rec = lam * state0 + sc * bound[:, 0, :]
+                new_states.append(rec.detach())
+                uf = rec.unsqueeze(1) * torch.conj(qn)
+                rp = torch.fft.irfft(uf, n=D, dim=-1)
+                rp = torch.clamp(rp, -65000.0, 65000.0).to(dtype)
+                retrieved_scales.append(rp)
+            self._states = new_states
+            
+        self._t += S
+        
+        combined = torch.cat(retrieved_scales, dim=-1)
+        h_out = self.out_proj2(self.act(self.out_proj1(combined)))
+        h_out = self.norm(h_out)
+        
         gate = torch.sigmoid(self.gp(hidden))
-
-        if target_ids is not None:
-            uf = hist * torch.conj(qn).unsqueeze(2)
-            rp = torch.fft.irfft(uf, n=D, dim=-1)
-            rp = torch.clamp(rp, -65000.0, 65000.0).to(hidden.dtype)
-
-            pe_pad = F.pad(self.pos_emb, (0, 0, 0, K * C - self.pos_emb.shape[0]))
-            pe_r = pe_pad[:K*C].reshape(K, C, D).to(device=device, dtype=hidden.dtype)
-
-            pl = torch.einsum("bskd,kcd->bskc", rp, pe_r)
-            pl = pl.reshape(B, S, K * C)
-            pl = pl[:, :, :S] / math.sqrt(self.dim)
-
-            ti_seq = torch.arange(S, device=device).unsqueeze(0)
-            qi_seq = torch.arange(S, device=device).unsqueeze(1)
-            cm = (ti_seq > qi_seq).unsqueeze(0)
-            pl.masked_fill_(cm, -1e4)
-
-            log_pp = F.log_softmax(pl, dim=-1)
-            # log_ps should be shape (B, S, S) representing the log probabilities
-            log_ps = torch.full_like(log_pp, -1e4)
-            log_ps[:, :, 1:] = log_pp[:, :, :-1]
-
-            mm = (self._ids.unsqueeze(1) == target_ids.unsqueeze(2)).to(hidden.dtype)
-
-            active = (target_ids != -100)
-            if active.any():
-                first = active.nonzero(as_tuple=True)[1].min().item()
-                mm[:, :, first:] = 0.0
-            
-            # Stable pointer target probability using logsumexp
-            ptp = torch.exp(log_ps)
-            ptp_target = torch.sum(ptp * mm, dim=-1)
-            
-            # log(sum(exp(log_ps * mm))) mathematically safe:
-            log_ps_masked = log_ps.masked_fill(mm == 0, float('-inf'))
-            ptl_stable = -torch.logsumexp(log_ps_masked, dim=-1)
-
-            if lm_logits is not None:
-                lm_lp = F.log_softmax(lm_logits, dim=-1)
-                safe_t = torch.where(target_ids == -100, torch.zeros_like(target_ids), target_ids)
-                lm_tp = torch.exp(torch.gather(lm_lp, dim=-1, index=safe_t.unsqueeze(-1)).squeeze(-1))
-                ftp = (1.0 - gate.squeeze(-1)) * lm_tp + gate.squeeze(-1) * ptp_target
+        
+        if lm_head_weight is not None:
+            if target_ids is not None:
+                if lm_logits is not None:
+                    safe_t = target_ids.clone()
+                    safe_t[safe_t == -100] = 0 
+                    
+                    CHUNK = 512
+                    ptr_tgt_chunks = []
+                    ptr_log_z_chunks = []
+                    
+                    for start in range(0, S, CHUNK):
+                        end = min(start + CHUNK, S)
+                        chunk = F.linear(h_out[:, start:end].float(), lm_head_weight.float())
+                        
+                        safe_t_chunk = safe_t[:, start:end].unsqueeze(-1)
+                        ptr_tgt_chunks.append(torch.gather(chunk, -1, safe_t_chunk).squeeze(-1))
+                        ptr_log_z_chunks.append(torch.logsumexp(chunk, dim=-1))
+                        del chunk
+                        
+                    del h_out
+                    ptr_tgt = torch.cat(ptr_tgt_chunks, dim=1)
+                    ptr_log_z = torch.cat(ptr_log_z_chunks, dim=1)
+                    
+                    lm_log_z = torch.logsumexp(lm_logits, dim=-1)     # [B, S]
+                    lm_tgt  = torch.gather(lm_logits,  -1, safe_t.unsqueeze(-1)).squeeze(-1)  # [B, S]
+                    
+                    lm_lp  = lm_tgt  - lm_log_z   # [B, S]
+                    ptr_lp  = ptr_tgt - ptr_log_z  # [B, S]
+                    
+                    gate_sq  = gate.squeeze(-1)                              # [B, S]
+                    log_1mg  = torch.log((1.0 - gate_sq).clamp(min=1e-7))
+                    log_g    = torch.log(gate_sq.clamp(min=1e-7))
+                    
+                    mixed_lp = torch.logaddexp(lm_lp + log_1mg, ptr_lp + log_g)  # [B, S]
+                    
+                    # Step 5: Loss
+                    loss = -mixed_lp
+                    loss = loss * (target_ids != -100).float()  # zero out padding
+                else:
+                    ptr_logits = F.linear(h_out, lm_head_weight)
+                    del h_out
+                    loss = F.cross_entropy(ptr_logits.view(-1, self.vocab), target_ids.view(-1), ignore_index=-100, reduction='none')
+                return loss.view(B, S), gate
             else:
-                ftp = ptp_target
-
-            gl = -torch.log(ftp + 1e-12)
-            ptl = ptl_stable
-
-            copyable = (mm * (~cm).to(hidden.dtype)).any(dim=-1)
-            ptl = torch.where(copyable, ptl, torch.zeros_like(ptl))
-
-            loss = gl + 1.0 * ptl
-            return loss, gate
-
-        elif prefill:
-            self._prompt_len = self._seq_len
-            return None, None
-
-        else:
-            uf = hist * torch.conj(qn)
-            rp = torch.fft.irfft(uf, n=D, dim=-1)
-            rp = torch.clamp(rp, -65000.0, 65000.0).to(hidden.dtype)
-
-            total = self._seq_len
-            pe_h = self.pos_emb[:total]
-
-            pad = K * C - total
-            if pad > 0:
-                pe_pad = F.pad(pe_h, (0, 0, 0, pad))
-            else:
-                pe_pad = pe_h
-
-            pe_r = pe_pad[:K*C].view(K, C, D).to(device=device, dtype=hidden.dtype)
-
-            pl = torch.einsum("bkd,kcd->bkc", rp, pe_r)
-            pl = pl.view(B, 1, K * C)
-            pl = pl[:, :, :total] / math.sqrt(self.dim)
-
-            pp = F.softmax(pl, dim=-1)
-            ps = torch.zeros_like(pp)
-            ps[:, :, 1:] = pp[:, :, :-1]
-
-            if hasattr(self, "_prompt_len") and self._prompt_len > 0:
-                ps[:, :, self._prompt_len:] = 0.0
-                ps = ps / (ps.sum(dim=-1, keepdim=True) + 1e-12)
-
-            pv = torch.zeros(B, 1, self.vocab, device=device, dtype=pp.dtype)
-            pv.scatter_add_(dim=2, index=self._ids.unsqueeze(1), src=ps)
-
-            gv = torch.sigmoid(self.gp(hidden[:, -1:, :]))
-
-            print(f"\n[DEBUG Step] gate: {gv.item():.4f}")
-            top_v, top_i = torch.topk(ps[0, 0], 5)
-            print("  Top 5 Pointer Positions:")
-            for v, i in zip(top_v, top_i):
-                tid = self._ids[0, i].item()
-                print(f"    Pos {i.item()}: ID {tid} | Prob: {v.item():.4f}")
-
-            if lm_logits is not None:
-                lm_last = lm_logits[:, -1:, :]
-                lm_p = F.softmax(lm_last, dim=-1)
-                fp = (1.0 - gv) * lm_p + gv * pv
-
-                top_lv, top_li = torch.topk(lm_p[0, 0], 3)
-                print("  Top 3 LM Tokens:")
-                for v, i in zip(top_lv, top_li):
-                    print(f"    ID {i.item()}: Prob {v.item():.4f}")
-
-                top_fv, top_fi = torch.topk(fp[0, 0], 3)
-                print("  Top 3 Final Tokens:")
-                for v, i in zip(top_fv, top_fi):
-                    print(f"    ID {i.item()}: Prob {v.item():.4f}")
-
-                return torch.log(fp + 1e-12), gv
-            else:
-                return torch.log(pv + 1e-12), gv
+                ptr_logits = F.linear(h_out, lm_head_weight)
+                del h_out
+                ptr_probs = F.softmax(ptr_logits, dim=-1)
+                if lm_logits is not None:
+                    lm_probs = F.softmax(lm_logits, dim=-1)
+                    mixed_probs = (1.0 - gate) * lm_probs + gate * ptr_probs
+                    return torch.log(mixed_probs + 1e-12), gate
+                return torch.log(ptr_probs + 1e-12), gate
+                
+        return torch.zeros(B, S, device=device), gate
 
 import os
 import torch
@@ -753,21 +643,17 @@ def prepare_model():
     custom_state = {k: v for k, v in state_dict.items() if any(x in k for x in ["mlp.router", "mlp.pw", "mlp.gate", "mlp.kp", "mlp.qp", "mlp.vp"])}
     model.load_state_dict(custom_state, strict=False)
     
-    max_training_len = SCALE_SCHEDULE[-1][1]
     hep_dna = PointerNet(
         dim=hidden_dim, 
         vocab=model.config.vocab_size,
-        max_len=max_training_len,
-        lam=0.999,
-        use_triton=True
+        scales=[0.999, 0.9998, 0.99995]  # Built for 4096+ tokens (survival at 4k: 1.7%, 44%, 81%)
     ).to(device=device, dtype=torch.bfloat16)
     
     if RESUME_CHECKPOINT and os.path.exists(RESUME_CHECKPOINT):
         log.info(f"Resuming HEP-DNA pointer from {RESUME_CHECKPOINT}...")
         hep_state = torch.load(RESUME_CHECKPOINT, map_location=device, weights_only=True)
         
-        # Pre-scale positional embeddings to match the checkpoint's shape (4096 + 256 = 4352)
-        hep_dna.rescale_positions_ntk(max_training_len)
+        hep_dna.rescale_positions_ntk(SCALE_SCHEDULE[-1][1])
         
         hep_dna.load_state_dict(hep_state)
     else:
@@ -783,7 +669,6 @@ def prepare_model():
 
 def train():
     model, tokenizer, hep_dna, device = prepare_model()
-    hep_dna = torch.compile(hep_dna)
     optimizer = torch.optim.AdamW(hep_dna.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     
     model.eval()
@@ -792,7 +677,6 @@ def train():
     step = START_STEP
     current_scale_idx = 0
     
-    # Fast-forward scale schedule
     while current_scale_idx < len(SCALE_SCHEDULE) - 1 and step >= SCALE_SCHEDULE[current_scale_idx][0]:
         current_scale_idx += 1
         
@@ -813,7 +697,6 @@ def train():
                 current_seq_len = SCALE_SCHEDULE[current_scale_idx][1]
                 dataset = LongRangeCopyDataset(tokenizer, seq_len=current_seq_len)
                 dataloader = iter(DataLoader(dataset, batch_size=BATCH_SIZE, num_workers=2, pin_memory=True, prefetch_factor=2))
-                # NTK-aware rescaling for position embeddings
                 hep_dna.rescale_positions_ntk(current_seq_len)
                 log.info(f"Stepping to SEQ_LEN = {current_seq_len}")
         
@@ -826,17 +709,14 @@ def train():
         input_ids = batch["input_ids"].to(device)
         labels = batch["labels"].to(device)
         
-        # Reset layers and pointer recurrence states for new sequence
         for layer in model.model.layers:
             if hasattr(layer.mlp, "reset_state"):
                 layer.mlp.reset_state()
         hep_dna.reset_inference_state()
         
-        # Construct 4D sliding window causal mask with window_size = 1 (complete past blinding)
         S = input_ids.shape[1]
         mask_2d = torch.full((S, S), float("-inf"), device=device, dtype=torch.bfloat16)
-        for i in range(S):
-            mask_2d[i, i] = 0.0
+        mask_2d.fill_diagonal_(0.0)
         mask_4d = mask_2d.unsqueeze(0).unsqueeze(0)
         
         with torch.no_grad():
@@ -849,21 +729,22 @@ def train():
         shift_lm_logits = lm_logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
         
+        del lm_logits
+        del hidden_states
+        torch.cuda.empty_cache()
+        
         valid_mask = (shift_labels != -100)
         if not valid_mask.any():
             continue
             
         optimizer.zero_grad()
         
-        # Pass the ENTIRE sequence through HEP-DNA at once!
-        # Since Qwen is frozen (no_grad), the pointer takes <200MB VRAM even for 8192 tokens.
-        # This preserves the full continuous computation graph, allowing gradients to flow
-        # perfectly from queries all the way back to keys thousands of tokens ago!
         loss_tensor, gate_tensor = hep_dna(
             hidden=shift_hidden,
             ids=shift_input_ids,
             lm_logits=shift_lm_logits,
-            target_ids=shift_labels
+            target_ids=shift_labels,
+            lm_head_weight=model.lm_head.weight
         )
         
         loss = loss_tensor[valid_mask].mean()
