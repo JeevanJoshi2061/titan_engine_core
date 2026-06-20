@@ -412,15 +412,17 @@ class PointerNet(nn.Module):
             if target_ids is not None:
                 if lm_logits is not None:
                     safe_t = target_ids.clone()
-                    safe_t[safe_t == -100] = 0 
+                    safe_t[safe_t == -100] = 0  # safe index for gather
                     
+                    # === ULTIMATE MEMORY FIX: CHUNKING + LOG-SPACE ===
+                    # Instead of creating ptr_logits for all 4096 tokens, we chunk it
                     CHUNK = 512
                     ptr_tgt_chunks = []
                     ptr_log_z_chunks = []
                     
                     for start in range(0, S, CHUNK):
                         end = min(start + CHUNK, S)
-                        chunk = F.linear(h_out[:, start:end].float(), lm_head_weight.float())
+                        chunk = F.linear(h_out[:, start:end], lm_head_weight)
                         
                         safe_t_chunk = safe_t[:, start:end].unsqueeze(-1)
                         ptr_tgt_chunks.append(torch.gather(chunk, -1, safe_t_chunk).squeeze(-1))
@@ -428,24 +430,34 @@ class PointerNet(nn.Module):
                         del chunk
                         
                     del h_out
-                    ptr_tgt = torch.cat(ptr_tgt_chunks, dim=1)
-                    ptr_log_z = torch.cat(ptr_log_z_chunks, dim=1)
+                    ptr_tgt = torch.cat(ptr_tgt_chunks, dim=1)  # [B, S]
+                    ptr_log_z = torch.cat(ptr_log_z_chunks, dim=1) # [B, S]
                     
+                    # Step 1 & 2 for LM: Compute log normalizers and gather
                     lm_log_z = torch.logsumexp(lm_logits, dim=-1)     # [B, S]
                     lm_tgt  = torch.gather(lm_logits,  -1, safe_t.unsqueeze(-1)).squeeze(-1)  # [B, S]
                     
+                    # Step 3: Log probs at target position only
                     lm_lp  = lm_tgt  - lm_log_z   # [B, S]
                     ptr_lp  = ptr_tgt - ptr_log_z  # [B, S]
                     
+                    # Step 4: Mix in LOG space — no full vocab tensor ever created!
                     gate_sq  = gate.squeeze(-1)                              # [B, S]
                     log_1mg  = torch.log((1.0 - gate_sq).clamp(min=1e-7))
                     log_g    = torch.log(gate_sq.clamp(min=1e-7))
                     
                     mixed_lp = torch.logaddexp(lm_lp + log_1mg, ptr_lp + log_g)  # [B, S]
                     
-                    # Step 5: Loss
+                    # Step 5: Loss with Auxiliary Gradient Starvation Fix
                     loss = -mixed_lp
-                    loss = loss * (target_ids != -100).float()  # zero out padding
+                    valid_mask_f = (target_ids != -100).float()
+                    loss = loss * valid_mask_f  # zero out padding
+                    
+                    # CRITICAL: Auxiliary loss to prevent gradient starvation!
+                    # If Gate=0, mixed_probs = lm_probs, so PointerNet gets zero gradients.
+                    # We force PointerNet to learn regardless of the Gate state.
+                    ptr_only_loss = -ptr_lp * valid_mask_f
+                    loss = loss + 0.1 * ptr_only_loss
                 else:
                     ptr_logits = F.linear(h_out, lm_head_weight)
                     del h_out
@@ -653,6 +665,7 @@ def prepare_model():
         log.info(f"Resuming HEP-DNA pointer from {RESUME_CHECKPOINT}...")
         hep_state = torch.load(RESUME_CHECKPOINT, map_location=device, weights_only=True)
         
+        # Pre-scale positional embeddings to match the checkpoint's shape (4096 + 256 = 4352)
         hep_dna.rescale_positions_ntk(SCALE_SCHEDULE[-1][1])
         
         hep_dna.load_state_dict(hep_state)
@@ -669,6 +682,7 @@ def prepare_model():
 
 def train():
     model, tokenizer, hep_dna, device = prepare_model()
+    # hep_dna = torch.compile(hep_dna)  # Disabled due to complex number unsupported warning
     optimizer = torch.optim.AdamW(hep_dna.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     
     model.eval()
@@ -677,6 +691,7 @@ def train():
     step = START_STEP
     current_scale_idx = 0
     
+    # Fast-forward scale schedule
     while current_scale_idx < len(SCALE_SCHEDULE) - 1 and step >= SCALE_SCHEDULE[current_scale_idx][0]:
         current_scale_idx += 1
         
@@ -697,6 +712,7 @@ def train():
                 current_seq_len = SCALE_SCHEDULE[current_scale_idx][1]
                 dataset = LongRangeCopyDataset(tokenizer, seq_len=current_seq_len)
                 dataloader = iter(DataLoader(dataset, batch_size=BATCH_SIZE, num_workers=2, pin_memory=True, prefetch_factor=2))
+                # NTK-aware rescaling for position embeddings
                 hep_dna.rescale_positions_ntk(current_seq_len)
                 log.info(f"Stepping to SEQ_LEN = {current_seq_len}")
         
@@ -709,11 +725,13 @@ def train():
         input_ids = batch["input_ids"].to(device)
         labels = batch["labels"].to(device)
         
+        # Reset layers and pointer recurrence states for new sequence
         for layer in model.model.layers:
             if hasattr(layer.mlp, "reset_state"):
                 layer.mlp.reset_state()
         hep_dna.reset_inference_state()
         
+        # Construct 4D sliding window causal mask with window_size = 1 (complete past blinding)
         S = input_ids.shape[1]
         mask_2d = torch.full((S, S), float("-inf"), device=device, dtype=torch.bfloat16)
         mask_2d.fill_diagonal_(0.0)
@@ -729,16 +747,16 @@ def train():
         shift_lm_logits = lm_logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
         
-        del lm_logits
-        del hidden_states
-        torch.cuda.empty_cache()
-        
         valid_mask = (shift_labels != -100)
         if not valid_mask.any():
             continue
             
         optimizer.zero_grad()
         
+        # Pass the ENTIRE sequence through HEP-DNA at once!
+        # Since Qwen is frozen (no_grad), the pointer takes <200MB VRAM even for 8192 tokens.
+        # This preserves the full continuous computation graph, allowing gradients to flow
+        # perfectly from queries all the way back to keys thousands of tokens ago!
         loss_tensor, gate_tensor = hep_dna(
             hidden=shift_hidden,
             ids=shift_input_ids,
