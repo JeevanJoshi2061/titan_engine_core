@@ -1,0 +1,5 @@
+when i test, i see pointernet on:
+Step 1000 : 130-3--3-3--3---3-
+Step 2000 : 190-8---4--48-4-4
+Step 4000 : .27 with--2JQ-2--O77--   
+means , with more training it literally find exact : wait for update for more training logs 
