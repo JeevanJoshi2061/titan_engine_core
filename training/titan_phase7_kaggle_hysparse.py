@@ -406,16 +406,16 @@ class PointerNet(nn.Module):
         h_out = self.out_proj2(self.act(self.out_proj1(combined)))
         h_out = self.norm(h_out)
         
-        gate = torch.sigmoid(self.gp(hidden))
+        gate_logits = self.gp(hidden).squeeze(-1)
+        gate_logits = torch.clamp(gate_logits, min=-8.0, max=8.0)
+        gate_sq = torch.sigmoid(gate_logits)
         
         if lm_head_weight is not None:
             if target_ids is not None:
                 if lm_logits is not None:
                     safe_t = target_ids.clone()
-                    safe_t[safe_t == -100] = 0  # safe index for gather
+                    safe_t[safe_t == -100] = 0
                     
-                    # === ULTIMATE MEMORY FIX: CHUNKING + LOG-SPACE ===
-                    # Instead of creating ptr_logits for all 4096 tokens, we chunk it
                     CHUNK = 512
                     ptr_tgt_chunks = []
                     ptr_log_z_chunks = []
@@ -430,50 +430,52 @@ class PointerNet(nn.Module):
                         del chunk
                         
                     del h_out
-                    ptr_tgt = torch.cat(ptr_tgt_chunks, dim=1)  # [B, S]
-                    ptr_log_z = torch.cat(ptr_log_z_chunks, dim=1) # [B, S]
+                    ptr_tgt = torch.cat(ptr_tgt_chunks, dim=1)
+                    ptr_log_z = torch.cat(ptr_log_z_chunks, dim=1)
                     
-                    # Step 1 & 2 for LM: Compute log normalizers and gather
-                    lm_log_z = torch.logsumexp(lm_logits, dim=-1)     # [B, S]
-                    lm_tgt  = torch.gather(lm_logits,  -1, safe_t.unsqueeze(-1)).squeeze(-1)  # [B, S]
+                    lm_log_z = torch.logsumexp(lm_logits, dim=-1)
+                    lm_tgt  = torch.gather(lm_logits,  -1, safe_t.unsqueeze(-1)).squeeze(-1)
                     
-                    # Step 3: Log probs at target position only
-                    lm_lp  = lm_tgt  - lm_log_z   # [B, S]
-                    ptr_lp  = ptr_tgt - ptr_log_z  # [B, S]
+                    lm_lp  = lm_tgt  - lm_log_z
+                    ptr_lp  = ptr_tgt - ptr_log_z
                     
-                    # Step 4: Mix in LOG space — no full vocab tensor ever created!
-                    gate_sq  = gate.squeeze(-1)                              # [B, S]
-                    log_1mg  = torch.log((1.0 - gate_sq).clamp(min=1e-7))
-                    log_g    = torch.log(gate_sq.clamp(min=1e-7))
+                    log_1mg = F.logsigmoid(-gate_logits)
+                    log_g   = F.logsigmoid(gate_logits)
                     
-                    mixed_lp = torch.logaddexp(lm_lp + log_1mg, ptr_lp + log_g)  # [B, S]
+                    mixed_lp = torch.logaddexp(lm_lp + log_1mg, ptr_lp + log_g)
                     
-                    # Step 5: Loss with Auxiliary Gradient Starvation Fix
                     loss = -mixed_lp
                     valid_mask_f = (target_ids != -100).float()
-                    loss = loss * valid_mask_f  # zero out padding
+                    loss = loss * valid_mask_f
                     
-                    # CRITICAL: Auxiliary loss to prevent gradient starvation!
-                    # If Gate=0, mixed_probs = lm_probs, so PointerNet gets zero gradients.
-                    # We force PointerNet to learn regardless of the Gate state.
                     ptr_only_loss = -ptr_lp * valid_mask_f
-                    loss = loss + 0.1 * ptr_only_loss
+                    
+                    # Scale up regularization to force gate elasticity
+                    gate_entropy = -(gate_sq * log_g + (1.0 - gate_sq) * log_1mg).mean()
+                    
+                    # Add a direct L2 regularization penalty on the gating weights to pull them toward 0.0 (Gate=0.5)
+                    gate_l2 = torch.norm(self.gp.weight)
+                    
+                    # Unified training objective
+                    loss = loss + 0.2 * ptr_only_loss + 0.1 * gate_entropy + 0.01 * gate_l2
+                    
+                    return loss.view(B, S), gate_sq.unsqueeze(-1)
                 else:
                     ptr_logits = F.linear(h_out, lm_head_weight)
                     del h_out
                     loss = F.cross_entropy(ptr_logits.view(-1, self.vocab), target_ids.view(-1), ignore_index=-100, reduction='none')
-                return loss.view(B, S), gate
+                return loss.view(B, S), gate_sq.unsqueeze(-1)
             else:
                 ptr_logits = F.linear(h_out, lm_head_weight)
                 del h_out
                 ptr_probs = F.softmax(ptr_logits, dim=-1)
                 if lm_logits is not None:
                     lm_probs = F.softmax(lm_logits, dim=-1)
-                    mixed_probs = (1.0 - gate) * lm_probs + gate * ptr_probs
-                    return torch.log(mixed_probs + 1e-12), gate
-                return torch.log(ptr_probs + 1e-12), gate
+                    mixed_probs = (1.0 - gate_sq.unsqueeze(-1)) * lm_probs + gate_sq.unsqueeze(-1) * ptr_probs
+                    return torch.log(mixed_probs + 1e-12), gate_sq.unsqueeze(-1)
+                return torch.log(ptr_probs + 1e-12), gate_sq.unsqueeze(-1)
                 
-        return torch.zeros(B, S, device=device), gate
+        return torch.zeros(B, S, device=device), gate_sq.unsqueeze(-1)
 
 import os
 import torch
@@ -731,10 +733,20 @@ def train():
                 layer.mlp.reset_state()
         hep_dna.reset_inference_state()
         
-        # Construct 4D sliding window causal mask with window_size = 1 (complete past blinding)
+        # Construct a sliding window causal mask to preserve syntax but block long-range cheating
         S = input_ids.shape[1]
+        WINDOW_SIZE = 64  # Base model can only see 64 tokens of local context
+
+        # Create standard causal lower triangular matrix
         mask_2d = torch.full((S, S), float("-inf"), device=device, dtype=torch.bfloat16)
-        mask_2d.fill_diagonal_(0.0)
+        mask_2d = torch.triu(mask_2d, diagonal=1)
+
+        # Blinding block: Mask out anything beyond the local window size
+        local_mask = torch.ones((S, S), device=device, dtype=torch.bool)
+        local_mask = torch.tril(local_mask, diagonal=0) & torch.triu(local_mask, diagonal=-WINDOW_SIZE)
+
+        # Combine: Keep causal structure, but turn everything outside the local window to -inf
+        mask_2d = mask_2d.masked_fill(~local_mask, float("-inf"))
         mask_4d = mask_2d.unsqueeze(0).unsqueeze(0)
         
         with torch.no_grad():
